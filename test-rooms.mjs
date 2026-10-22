@@ -56,14 +56,29 @@ try {
   assert.equal(after.clock.w, 180000); // White's first move is free, no increment yet
   await white.next('state');
 
-  // a third person can't take a seat
+  // a third person watches: no seat, no token, and can't move or chat
   const c = client();
   c.send({ t: 'join', room: ja.room });
-  assert.match((await c.next('error')).msg, /two players/);
+  assert.equal((await c.next('joined')).token, null);
+  const watching = await c.next('state');
+  assert.equal(watching.you, null);
+  assert.equal(watching.watchers, 1);
+  await a.next('state'); await b.next('state');
+  c.send({ t: 'move', from: 'e7', to: 'e5' });
+  c.send({ t: 'chat', text: 'hi from the crowd' });
+
+  // chat from a player reaches both players and the spectator
+  white.send({ t: 'chat', text: '  good luck!  ' });
+  for (const x of [a, b, c]) {
+    let log;
+    do log = (await x.next('chat')).log; while (!log.length); // skip the history sent on joining
+    assert.deepEqual(log, [{ from: 'w', text: 'good luck!' }]);
+  }
 
   // a player who drops can come back to the same seat with their token
   b.ws.close();
   assert.equal((await a.next('state')).seats[jb.color], 'away');
+  await c.next('state');
   const b2 = client();
   b2.send({ t: 'join', room: ja.room, token: jb.token });
   await b2.next('joined');
@@ -71,6 +86,7 @@ try {
   assert.equal(back.you, jb.color);
   assert.equal(moves(back.pgn), '1. e4');
   assert.equal((await a.next('state')).seats[jb.color], 'here');
+  await c.next('state');
 
   // draw offer: offering twice from one side does nothing; the other side accepting ends the game
   const both = async () => [await a.next('state'), await b2.next('state')];
@@ -111,6 +127,23 @@ try {
   [x] = await both();
   assert.deepEqual(x.result, { winner: 'b', reason: 'resignation' });
 
+  // matchmaking: two seekers on the same time control get paired; the lobby lists live games
+  const lob = client();
+  lob.send({ t: 'lobby' });
+  await lob.next('lobby');
+  const s1 = client(), s2 = client();
+  s1.send({ t: 'seek', tc: '10+0' });
+  assert.equal((await s1.next('seeking')).tc, '10+0');
+  s2.send({ t: 'seek', tc: '10+0' });
+  const [p1, p2] = [await s1.next('joined'), await s2.next('joined')];
+  assert.equal(p1.room, p2.room);
+  const [st1, st2] = [await s1.next('state'), await s2.next('state')];
+  assert.notEqual(st1.you, st2.you);
+  assert.equal(st1.tc, '10+0');
+  let listed;
+  do listed = await lob.next('lobby'); while (!listed.games.some(g => g.id === p1.room));
+  assert.deepEqual(listed.seeking, []);
+
   // only the page and the model folder are served
   assert.equal((await fetch(BASE + '/')).status, 200);
   assert.equal((await fetch(BASE + '/g/' + ja.room)).status, 200);
@@ -118,7 +151,7 @@ try {
   for (const p of ['/server.js', '/package.json', '/models/../server.js', '/models/%2e%2e/server.js']) assert.equal((await fetch(BASE + p)).status, 404, p);
 
   console.log('rooms: all checks passed');
-  for (const x of [a, b2, c]) x.ws.close();
+  for (const x of [a, b2, c, lob, s1, s2]) x.ws.close();
 } finally {
   srv.kill();
 }

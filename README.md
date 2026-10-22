@@ -11,7 +11,7 @@ npm start
 
 Then open http://localhost:3000. The Node server (`server.js`) serves the game and runs the online rooms. Local play (two players on one screen, or against the computer) also works from any static server, such as `python3 -m http.server 5173 --bind 127.0.0.1 --directory .`.
 
-`npm test` starts a server on port 3999 and checks the room protocol: joining, turn order, illegal moves, clocks, draw offers, rematch, resigning, reconnecting, and which files get served.
+`npm test` starts a server on port 3999 and checks the room protocol: joining, spectators, chat, matchmaking, turn order, illegal moves, clocks, draw offers, rematch, resigning, reconnecting, and which files get served.
 
 ## Features
 
@@ -19,6 +19,7 @@ Then open http://localhost:3000. The Node server (`server.js`) serves the game a
 - Moves animate, and there is a promotion picker, an undo button, and a list of captured pieces with the material score.
 - Two players on one screen, with auto-flip so the board turns to whoever moves next.
 - Play a friend online: **Play a friend online** makes a private room with a link like `/g/1a2b3c4d`. Your friend opens it and you each get a colour. The server checks every move, and refreshing the page puts you back in your seat.
+- A menu at `/` with quick pairing against a random opponent (one queue per time control), private game links, local play, and a list of live games anyone can watch. Players can chat in a game; spectators can read the chat.
 - Online games have clocks (1+0, 3+2, 5+3, 10+0, 15+10, or no clock), resigning, draw offers, a rematch with colours swapped, a move list, and a game-over screen. The server keeps the time, so a slow or tampered page can't stop the clock.
 - A computer opponent at Easy, Medium, Hard or Max; you can play White or Black.
 - Realistic 3D-model pieces, a real marble board plus four colour boards, and sounds made with Web Audio, so there are no audio files. Settings are remembered.

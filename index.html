@@ -29,14 +29,29 @@
   .online .online-only:not([hidden]) { display: inline-block; }
   button:disabled { opacity: 0.5; cursor: default; }
   #panel { position: fixed; right: 12px; top: 110px; bottom: 12px; width: 170px; display: flex; flex-direction: column; gap: 8px; pointer-events: none; }
-  #moves { flex: 0 1 auto; overflow-y: auto; margin: 0; padding: 8px 8px 8px 36px; background: #000a; border-radius: 8px; pointer-events: auto; }
+  #moves { flex: 0 1 auto; max-height: 30vh; overflow-y: auto; margin: 0; padding: 8px 8px 8px 36px; background: #000a; border-radius: 8px; pointer-events: auto; }
   #moves:empty { display: none; }
   #moves li span { display: inline-block; width: 56px; }
   .clock { background: #000a; padding: 8px 12px; border-radius: 8px; font: 600 20px ui-monospace, monospace; text-align: right; }
   .clock:empty { display: none; }
   .clock.running { background: #2f5d3a; }
   .clock.running.low { background: #8a2b2b; }
-  @media (max-width: 640px) { #moves { display: none; } #panel { top: auto; width: 140px; } }
+  #chat { display: flex; flex-direction: column; gap: 6px; background: #000a; border-radius: 8px; padding: 8px; pointer-events: auto; }
+  #chat[hidden] { display: none; }
+  #chatLog { list-style: none; margin: 0; padding: 0; max-height: 25vh; overflow-y: auto; font-size: 14px; overflow-wrap: anywhere; }
+  #chatLog b { font-weight: 600; }
+  #chat input { width: 100%; box-sizing: border-box; padding: 6px; border-radius: 6px; border: 1px solid #666; background: #1d1f24; color: #eee; font: inherit; }
+  #lobby { position: fixed; inset: 0; overflow-y: auto; background: #0009; display: flex; justify-content: center; align-items: flex-start; padding: 72px 16px 16px; box-sizing: border-box; }
+  #lobby[hidden] { display: none; }
+  #lobby > div { width: min(520px, 100%); background: #2a2d33f2; border: 1px solid #555; border-radius: 14px; padding: 20px; }
+  #lobby h1 { margin: 0 0 4px; font-size: 28px; }
+  #lobby h2 { font-size: 16px; margin: 20px 0 8px; color: #bbb; }
+  #lobby .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+  #lobby .row { display: flex; gap: 8px; flex-wrap: wrap; }
+  #lobby .seeking { outline: 2px solid #7cc47f; }
+  #liveList { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+  #liveList li { display: flex; justify-content: space-between; align-items: center; background: #0006; padding: 6px 10px; border-radius: 8px; }
+  @media (max-width: 640px) { #moves, #chat { display: none; } #panel { top: auto; width: 140px; } }
 </style>
 <script type="importmap">
 { "imports": {
@@ -49,7 +64,7 @@
 <body>
 <div id="hud">
   <span id="status"></span>
-  <button id="online">Play a friend online</button>
+  <button id="online">Menu</button>
   <button id="resign" class="online-only" hidden>Resign</button>
   <button id="drawBtn" class="online-only" hidden>Offer draw</button>
   <button id="declineBtn" class="online-only" hidden>Decline draw</button>
@@ -89,7 +104,33 @@
 <div id="panel">
   <div id="clockTop" class="clock"></div>
   <ol id="moves" aria-label="Moves"></ol>
+  <div id="chat" hidden>
+    <ul id="chatLog" aria-live="polite" aria-label="Chat"></ul>
+    <form id="chatForm"><input id="chatInput" maxlength="200" placeholder="Say something…" autocomplete="off" aria-label="Chat message"></form>
+  </div>
   <div id="clockBottom" class="clock"></div>
+</div>
+<div id="lobby" hidden>
+  <div>
+    <h1>3D Chess</h1>
+    <div id="lobbyOnline">
+      <h2>Quick pairing with a random opponent</h2>
+      <div class="grid" id="seekBtns">
+        <button data-tc="1+0">1+0 Bullet</button><button data-tc="3+2">3+2 Blitz</button><button data-tc="5+3">5+3 Blitz</button>
+        <button data-tc="10+0">10+0 Rapid</button><button data-tc="15+10">15+10 Rapid</button><button data-tc="none">No clock</button>
+      </div>
+      <p id="seekStatus" hidden>Looking for an opponent… <button id="cancelSeek">Cancel</button></p>
+      <h2>Play a friend</h2>
+      <button id="friendBtn">Create a private game link</button>
+    </div>
+    <p id="lobbyOffline" hidden>Online play needs the game server. Run <code>npm start</code> and open http://localhost:3000.</p>
+    <h2>Play on this device</h2>
+    <div class="row"><button id="vsCpu">Play the computer</button><button id="local2p">Two players, one screen</button><button id="closeLobby">Back to the board</button></div>
+    <div id="liveSection" hidden>
+      <h2>Live games</h2>
+      <ul id="liveList"></ul>
+    </div>
+  </div>
 </div>
 <dialog id="tcPick">
   <p>Choose a time control</p>
@@ -304,7 +345,7 @@ function flipCamera() {
 const autoflip = document.getElementById('autoflip');
 function faceSideToMove() {
   // vs CPU: always face the human; 2 players: face whoever moves if auto-flip is on
-  const facing = online ? online.color : cpuColor() ? (cpuColor() === 'w' ? 'b' : 'w') : autoflip.checked && game.turn();
+  const facing = online ? online.color ?? 'w' : cpuColor() ? (cpuColor() === 'w' ? 'b' : 'w') : autoflip.checked && game.turn();
   if (!facing) return;
   const wantZ = facing === 'w' ? 1 : -1; // white sits at +z
   if (Math.sign(camera.position.z) !== wantZ) return flipCamera();
@@ -400,7 +441,7 @@ function localResult() {
   return null;
 }
 const currentResult = () => online ? online.result : localResult();
-const resultTitle = r => !r.winner ? 'Draw' : !online ? `${NAME[r.winner]} wins` : r.winner === online.color ? 'You win!' : 'You lose';
+const resultTitle = r => !r.winner ? 'Draw' : !online?.color ? `${NAME[r.winner]} wins` : r.winner === online.color ? 'You win!' : 'You lose';
 const resultReason = r => r.winner
   ? `${NAME[r.winner]} won ${{ checkmate: 'by checkmate', resignation: 'by resignation', timeout: 'on time' }[r.reason]}`
   : `Draw by ${r.reason}`;
@@ -422,6 +463,7 @@ function showOver(r) {
   document.getElementById('overTitle').textContent = resultTitle(r);
   document.getElementById('overReason').textContent = resultReason(r);
   againBtn.textContent = !online ? 'New game' : online.rematch.includes(otherColor(online.color)) ? 'Accept rematch' : 'Rematch';
+  againBtn.hidden = online && !online.color; // spectators can't rematch
   if (!over.open) ask(over).then(v => {
     if (v !== 'again') return;
     online ? send({ t: 'rematch' }) : restart(() => game.reset());
@@ -437,25 +479,29 @@ function update() {
   const res = currentResult();
   let text = res ? (res.winner ? `${resultTitle(res)} · ${resultReason(res)}` : resultReason(res))
     : `${NAME[game.turn()]} to move${game.inCheck() ? ' (check!)' : ''}`;
+  btn('chat').hidden = !online;
   if (online) {
-    const me = online.color, opp = otherColor(me), oppSeat = online.seats[opp];
-    const playing = !res && online.seats.w && online.seats.b;
-    text = !oppSeat ? 'Waiting for your friend to join…'
-      : `You are ${NAME[me]} · ${text}${oppSeat === 'away' ? ' · opponent disconnected' : ''}` +
+    const me = online.color, opp = otherColor(me ?? 'w'), oppSeat = online.seats[opp];
+    const playing = !res && online.seats.w && online.seats.b && !!me;
+    const crowd = online.watchers ? ` · ${online.watchers} watching` : '';
+    text = !me ? `Watching · ${text}${crowd}`
+      : !oppSeat ? 'Waiting for your friend to join…'
+      : `You are ${NAME[me]} · ${text}${oppSeat === 'away' ? ' · opponent disconnected' : ''}${crowd}` +
         (playing && online.drawOffer === opp ? ' · opponent offers a draw' : '') +
         (res && online.rematch.includes(opp) && !online.rematch.includes(me) ? ' · opponent wants a rematch' : '');
-    shareEl.hidden = !!oppSeat;
+    shareEl.hidden = !me || !!oppSeat;
+    btn('chatForm').hidden = !me;
     btn('resign').hidden = btn('drawBtn').hidden = !playing;
     btn('drawBtn').textContent = online.drawOffer === opp ? 'Accept draw' : online.drawOffer === me ? 'Draw offered' : 'Offer draw';
     btn('drawBtn').disabled = online.drawOffer === me;
     btn('declineBtn').hidden = !(playing && online.drawOffer === opp);
-    btn('rematchBtn').hidden = !res;
+    btn('rematchBtn').hidden = !res || !me;
     btn('rematchBtn').textContent = online.rematch.includes(me) ? 'Rematch requested' : online.rematch.includes(opp) ? 'Accept rematch' : 'Rematch';
     btn('rematchBtn').disabled = online.rematch.includes(me);
   }
   statusEl.textContent = text;
   const key = res && game.pgn() + res.reason;
-  if (key && key !== shownOver) { shownOver = key; setTimeout(() => showOver(res), 700); } // after the last move lands
+  if (key && key !== shownOver && btn('lobby').hidden) { shownOver = key; setTimeout(() => showOver(res), 700); } // after the last move lands; not over the menu
   if (!res && over.open) over.close(); // a rematch started
   if (res && over.open) showOver(res); // refresh the button label
 }
@@ -557,14 +603,33 @@ function connect(hello) {
   const ws = net = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws`);
   ws.onopen = () => send(hello());
   ws.onmessage = e => onServer(JSON.parse(e.data));
-  ws.onerror = () => { if (!online) statusEl.textContent = 'Online play needs the game server: run npm start.'; };
+  ws.onerror = () => { if (!online) { btn('lobbyOnline').hidden = true; btn('lobbyOffline').hidden = false; } };
   ws.onclose = () => { if (online && net === ws) setTimeout(() => connect(rejoin), 1000); }; // keep trying to get back in
 }
 const rejoin = () => ({ t: 'join', room: online.room, token: seatStore.get('seat:' + online.room) });
 
 async function onServer(m) {
   if (m.t === 'error') { statusEl.textContent = m.msg; return; }
+  if (m.t === 'lobby') return showLobbyGames(m.games);
+  if (m.t === 'seeking') {
+    for (const b of document.querySelectorAll('#seekBtns button')) b.classList.toggle('seeking', b.dataset.tc === m.tc);
+    btn('seekStatus').hidden = !m.tc;
+    return;
+  }
+  if (m.t === 'chat') {
+    const log = btn('chatLog');
+    for (const { from, text } of m.log) {
+      const li = document.createElement('li'), who = document.createElement('b');
+      who.textContent = NAME[from] + ': ';
+      li.append(who, text);
+      log.append(li);
+    }
+    log.scrollTop = log.scrollHeight;
+    return;
+  }
   if (m.t === 'joined') {
+    btn('lobby').hidden = true;
+    btn('chatLog').replaceChildren(); // the server sends the room's chat history next
     seatStore.set('seat:' + m.room, m.token); // lets a refresh take the same seat back
     online = { room: m.room, color: 'w', seats: {}, rematch: [] }; // the state message that follows fills the rest
     history.replaceState(null, '', '/g/' + m.room);
@@ -574,7 +639,7 @@ async function onServer(m) {
   }
   if (m.t === 'state') {
     Object.assign(online, { color: m.you, seats: m.seats, tc: m.tc, clock: m.clock, clockAt: performance.now(),
-      result: m.result, drawOffer: m.drawOffer, rematch: m.rematch });
+      result: m.result, drawOffer: m.drawOffer, rematch: m.rematch, watchers: m.watchers });
     await idle();
     const remote = new Chess();
     if (m.pgn) remote.loadPgn(m.pgn);
@@ -586,10 +651,38 @@ async function onServer(m) {
   }
 }
 
-document.getElementById('online').onclick = async () => {
-  if (online) return location.href = '/';
+// --- lobby: the menu shown at "/" ---
+const toServer = m => net?.readyState === 1 ? send(m) : connect(() => m);
+function showLobby() {
+  btn('lobby').hidden = false;
+  if (net?.readyState !== 1) connect(() => ({ t: 'lobby' }));
+}
+function showLobbyGames(games) {
+  btn('liveSection').hidden = !games.length;
+  btn('liveList').replaceChildren(...games.map(g => {
+    const li = document.createElement('li'), watch = document.createElement('button');
+    li.textContent = `${g.tc === 'none' ? 'No clock' : g.tc} · move ${Math.ceil(g.moves / 2) || 1}`;
+    watch.textContent = 'Watch';
+    watch.onclick = () => location.href = '/g/' + g.id;
+    li.append(watch);
+    return li;
+  }));
+}
+for (const b of document.querySelectorAll('#seekBtns button')) b.onclick = () => toServer({ t: 'seek', tc: b.dataset.tc });
+btn('cancelSeek').onclick = () => send({ t: 'cancelSeek' });
+btn('friendBtn').onclick = async () => {
   const tc = await ask(document.getElementById('tcPick'));
-  if (tc) connect(() => ({ t: 'create', tc }));
+  if (tc) toServer({ t: 'create', tc });
+};
+const playLocal = mode => { send({ t: 'cancelSeek' }); btn('lobby').hidden = true; modeEl.value = mode; restart(() => {}); };
+btn('vsCpu').onclick = () => playLocal(modeEl.value === '2p' ? 'medium' : modeEl.value);
+btn('local2p').onclick = () => playLocal('2p');
+btn('closeLobby').onclick = () => { send({ t: 'cancelSeek' }); btn('lobby').hidden = true; update(); };
+document.getElementById('online').onclick = () => online ? location.href = '/' : showLobby();
+btn('chatForm').onsubmit = e => {
+  e.preventDefault();
+  send({ t: 'chat', text: btn('chatInput').value });
+  btn('chatInput').value = '';
 };
 btn('resign').onclick = () => confirm('Resign this game?') && send({ t: 'resign' });
 btn('drawBtn').onclick = () => send({ t: 'draw' });
@@ -604,7 +697,8 @@ function fmt(ms) {
 }
 setInterval(() => {
   const c = online?.clock;
-  for (const [id, side] of [['clockBottom', online?.color], ['clockTop', online && otherColor(online.color)]]) {
+  const me = online?.color ?? 'w'; // spectators see White at the bottom
+  for (const [id, side] of [['clockBottom', me], ['clockTop', otherColor(me)]]) {
     const el = btn(id);
     if (!c) { el.textContent = ''; continue; }
     const ms = c[side] - (side === c.running ? performance.now() - online.clockAt : 0);
@@ -617,6 +711,7 @@ document.getElementById('copy').onclick = () => navigator.clipboard?.writeText(s
   () => document.getElementById('copy').textContent = 'Copied!', () => shareUrl.select());
 const linkRoom = location.pathname.match(/^\/g\/([a-z0-9]+)$/)?.[1];
 if (linkRoom) connect(() => ({ t: 'join', room: linkRoom, token: seatStore.get('seat:' + linkRoom) }));
+else showLobby();
 
 addEventListener('resize', () => {
   camera.aspect = innerWidth / innerHeight;
