@@ -47,12 +47,14 @@
     <option value="b">Play Black</option>
   </select>
   <select id="theme" aria-label="Board theme">
+    <option value="real">Real marble board</option>
     <option value="wood">Wood</option>
     <option value="marble">Marble</option>
     <option value="green">Tournament</option>
     <option value="night">Night</option>
   </select>
   <select id="pieceSet" aria-label="Piece set">
+    <option value="real">Realistic pieces</option>
     <option value="classic">Classic pieces</option>
     <option value="neon">Neon pieces</option>
     <option value="bauhaus">Bauhaus pieces</option>
@@ -72,6 +74,7 @@
 <script type="module">
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { Chess } from 'chess.js';
 
@@ -115,9 +118,9 @@ scene.add(frame);
 const squares = {};
 for (let f = 0; f < 8; f++) for (let r = 0; r < 8; r++) {
   const sq = FILES[f] + (r + 1);
-  const m = new THREE.Mesh(new THREE.BoxGeometry(1, 0.2, 1), new THREE.MeshStandardMaterial());
+  const m = new THREE.Mesh(new THREE.BoxGeometry(1, 0.2, 1), new THREE.MeshStandardMaterial({ transparent: true }));
   const [x, z] = toPos(sq);
-  m.position.set(x, -0.1, z);
+  m.position.set(x, -0.098, z); // a hair above y=0 so highlights sit on top of the real board
   m.receiveShadow = true;
   m.userData = { sq, dark: (f + r) % 2 === 0 }; // a1 is dark; base colour comes from the theme
   scene.add(m);
@@ -132,19 +135,25 @@ const store = {
 
 // --- themes ---
 const THEMES = {
+  real:   { light: 0xe8d6b0, dark: 0x8b5a3c, frame: 0x3b2516, bg: 0x1d1f24, model: true }, // board from the 3D model; squares become highlight overlays
   wood:   { light: 0xe8d6b0, dark: 0x8b5a3c, frame: 0x3b2516, bg: 0x1d1f24 },
   marble: { light: 0xeeeeee, dark: 0x8a8f98, frame: 0x44474d, bg: 0x202328 },
   green:  { light: 0xeeeed2, dark: 0x769656, frame: 0x2f3b22, bg: 0x1b1f1a },
   night:  { light: 0x9fb3c8, dark: 0x34495e, frame: 0x1a2533, bg: 0x0e1218 },
 };
 const themeEl = document.getElementById('theme');
+let realBoard = null; // set once the model loads
+const useRealBoard = () => !!(THEMES[themeEl.value].model && realBoard);
 function applyTheme(name) {
-  const t = THEMES[name] ?? THEMES.wood;
+  const t = THEMES[name];
   for (const m of Object.values(squares)) m.userData.base = m.userData.dark ? t.dark : t.light;
   frame.material.color.setHex(t.frame);
   scene.background.setHex(t.bg);
+  frame.visible = !useRealBoard();
+  if (realBoard) realBoard.visible = useRealBoard();
 }
-themeEl.value = THEMES[store.get('theme')] ? store.get('theme') : 'wood';
+const restoreSelect = (el, key) => { const v = store.get(key); if ([...el.options].some(o => o.value === v)) el.value = v; };
+restoreSelect(themeEl, 'theme');
 applyTheme(themeEl.value);
 
 // --- sounds (synthesised with Web Audio, no files) ---
@@ -285,9 +294,39 @@ function buildPiece(type, color, set) {
 }
 
 const setEl = document.getElementById('pieceSet');
-setEl.value = SETS[store.get('pieces')] ? store.get('pieces') : 'classic';
+restoreSelect(setEl, 'pieces');
 const templates = {};
-const makePiece = (type, color) => (templates[setEl.value + type + color] ??= buildPiece(type, color, setEl.value)).clone(); // clones share geometry
+let realSet = null; // pieces from the 3D model, set once it loads
+function makePiece(type, color) {
+  if (setEl.value === 'real' && realSet) return realSet[type + color].clone();
+  const set = setEl.value === 'real' ? 'classic' : setEl.value; // classic stands in while the model loads
+  return (templates[set + type + color] ??= buildPiece(type, color, set)).clone(); // clones share geometry
+}
+
+// "Chess Set" by Riley Queen, Poly Haven, CC0. Model units are metres; one square is 0.057888 m.
+new GLTFLoader().load('models/chess_set/chess_set_1k.gltf', gltf => {
+  const S = 1 / 0.057888, get = name => gltf.scene.getObjectByName(name);
+  const NAMES = { p: 'pawn', n: 'knight', b: 'bishop', r: 'rook', q: 'queen', k: 'king' };
+  realSet = {};
+  for (const [t, name] of Object.entries(NAMES)) for (const [c, cname] of [['w', 'white'], ['b', 'black']]) {
+    const m = (get(`piece_${name}_${cname}_01`) ?? get(`piece_${name}_${cname}`)).clone();
+    m.position.set(0, 0, 0);
+    m.scale.setScalar(S);
+    m.traverse(o => { o.castShadow = o.receiveShadow = true; });
+    const g = new THREE.Group();
+    g.rotation.y = Math.PI; // the model has white at -z; ours sits at +z
+    realSet[t + c] = g.add(m);
+  }
+  realBoard = get('board');
+  realBoard.scale.setScalar(S);
+  realBoard.rotation.y = Math.PI;
+  realBoard.position.y = -0.017392 * S; // board top flush with y=0
+  realBoard.traverse(o => { o.receiveShadow = true; });
+  scene.add(realBoard);
+  applyTheme(themeEl.value);
+  paint();
+  syncPieces();
+});
 
 const pieceGroup = new THREE.Group();
 scene.add(pieceGroup);
@@ -407,15 +446,21 @@ let selected = null, targets = [], busy = false;
 const statusEl = document.getElementById('status');
 
 function paint() {
-  for (const m of Object.values(squares)) m.material.color.setHex(m.userData.base);
+  const overlay = useRealBoard();
+  const tint = (sq, hex) => { // hex undefined = plain square
+    const mat = squares[sq].material;
+    mat.color.setHex(hex ?? squares[sq].userData.base);
+    mat.opacity = !overlay ? 1 : hex ? 0.55 : 0;
+  };
+  for (const sq in squares) tint(sq);
   const last = game.history({ verbose: true }).at(-1);
-  if (last) for (const s of [last.from, last.to]) squares[s].material.color.setHex(0xc9b44a);
+  if (last) for (const s of [last.from, last.to]) tint(s, 0xc9b44a);
   if (game.inCheck()) {
     const king = game.board().flat().find(p => p && p.type === 'k' && p.color === game.turn());
-    squares[king.square].material.color.setHex(0xd04040);
+    tint(king.square, 0xd04040);
   }
-  if (selected) squares[selected].material.color.setHex(0x5fa8d3);
-  for (const m of targets) squares[m.to].material.color.setHex(m.captured ? 0xd9734a : 0x7cc47f);
+  if (selected) tint(selected, 0x5fa8d3);
+  for (const m of targets) tint(m.to, m.captured ? 0xd9734a : 0x7cc47f);
 }
 
 function update() {

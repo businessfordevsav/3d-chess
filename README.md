@@ -16,7 +16,7 @@ Run it from this folder (`--directory .` serves only this folder, `--bind 127.0.
 - Moves animate, and there is a promotion picker, an undo button, and a list of captured pieces with the material score.
 - Two players on one screen, with auto-flip so the board turns to whoever moves next.
 - A computer opponent at Easy, Medium, Hard or Max; you can play White or Black.
-- Sounds made with Web Audio, so there are no audio files, four board themes, and three piece sets: Classic, Neon and Bauhaus. All of these settings are remembered.
+- Sounds made with Web Audio, so there are no audio files. The default look is a realistic 3D-model set (pieces and marble board); there are also four colour boards and three code-built piece sets: Classic, Neon and Bauhaus. All of these settings are remembered.
 - Save and load games as PGN files. The current game is also saved automatically and comes back after a reload.
 
 ## Debugging
@@ -26,3 +26,7 @@ The browser console exposes `game` (the chess.js instance) and `restart`. To loa
 ```js
 restart(() => game.load('7k/1P6/8/8/8/8/8/K7 w - - 0 1'))
 ```
+
+## Credits
+
+The realistic pieces and marble board are the [Chess Set](https://polyhaven.com/a/chess_set) model by Riley Queen, from Poly Haven, licensed CC0. They're stored in `models/chess_set/` at 1k texture resolution (7 MB).
