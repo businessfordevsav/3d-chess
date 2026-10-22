@@ -5,10 +5,10 @@ A 3D chess game that runs in the browser: Three.js renders the board, chess.js e
 ## Run
 
 ```bash
-python3 -m http.server 5173
+python3 -m http.server 5173 --bind 127.0.0.1 --directory .
 ```
 
-Then open http://localhost:5173. It needs to be served over HTTP, not opened as `file://`, because the Stockfish Web Worker won't load otherwise.
+Run it from this folder (`--directory .` serves only this folder, `--bind 127.0.0.1` keeps it off the network), then open http://localhost:5173. It needs to be served over HTTP, not opened as `file://`, because the Stockfish Web Worker won't load otherwise.
 
 ## Features
 
