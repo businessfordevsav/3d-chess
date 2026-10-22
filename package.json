@@ -5,7 +5,7 @@
   "scripts": {
     "start": "node --no-warnings server.js",
     "dev": "nodemon --no-warnings server.js",
-    "test": "node --no-warnings test-rooms.mjs"
+    "test": "node --no-warnings test-rooms.mjs && node --no-warnings test-security.mjs"
   },
   "engines": {
     "node": ">=22.13"

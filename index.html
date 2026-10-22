@@ -715,8 +715,8 @@ const currentResult = () => online ? online.result : localResult();
 // "alice (1512)" for a signed-in player, otherwise the colour
 const rated = p => `${p.name} (${p.rating}${p.provisional ? '?' : ''})`; // "?" = provisional, not enough games yet
 const who = side => { const p = online?.players?.[side]; return p ? rated(p) : NAME[side]; };
-const resultTitle = r => !r.winner ? 'Draw' : !online?.color ? `${NAME[r.winner]} wins` : r.winner === online.color ? 'You win!' : 'You lose';
-const resultReason = r => r.winner
+const resultTitle = r => r.reason === 'aborted' ? 'Game aborted' : !r.winner ? 'Draw' : !online?.color ? `${NAME[r.winner]} wins` : r.winner === online.color ? 'You win!' : 'You lose';
+const resultReason = r => r.reason === 'aborted' ? 'No first move within 30 seconds, so it does not count' : r.winner
   ? `${NAME[r.winner]} won ${{ checkmate: 'by checkmate', resignation: 'by resignation', timeout: 'on time' }[r.reason]}`
   : `Draw by ${r.reason}`;
 
@@ -736,9 +736,9 @@ let shownOver = null; // which finished game the dialog was last shown for
 function showOver(r) {
   document.getElementById('overTitle').textContent = resultTitle(r);
   const change = online?.color && r.changes?.[online.color];
-  const how = r.winner ? { checkmate: 'by checkmate', resignation: 'by resignation', timeout: 'on time' }[r.reason] : `by ${r.reason}`;
+  const how = r.reason === 'aborted' ? resultReason(r) : r.winner ? { checkmate: 'by checkmate', resignation: 'by resignation', timeout: 'on time' }[r.reason] : `by ${r.reason}`;
   document.getElementById('overReason').textContent = how + (change != null ? ` · rating ${change >= 0 ? '+' : ''}${change}` : '');
-  document.getElementById('overMark').textContent = !r.winner ? '½' : online?.color && r.winner !== online.color ? '♚\uFE0E' : '♔\uFE0E';
+  document.getElementById('overMark').textContent = r.reason === 'aborted' ? '–' : !r.winner ? '½' : online?.color && r.winner !== online.color ? '♚\uFE0E' : '♔\uFE0E';
   againBtn.textContent = !online ? 'New game' : online.rematch.includes(otherColor(online.color)) ? 'Accept rematch' : 'Rematch';
   againBtn.hidden = online && !online.color; // spectators can't rematch
   if (!over.open) ask(over).then(v => {
@@ -748,13 +748,14 @@ function showOver(r) {
 }
 
 const btn = id => document.getElementById(id);
+let baseStatus = ''; // status without the first-move countdown, which ticks separately
 function update() {
   paint();
   showCaptured();
   showMoves();
   if (!online) store.set('pgn', game.pgn()); // autosave, restored on reload
   const res = currentResult();
-  let text = res ? (res.winner ? `${resultTitle(res)} · ${resultReason(res)}` : resultReason(res))
+  let text = res ? (res.winner || res.reason === 'aborted' ? `${resultTitle(res)} · ${resultReason(res)}` : resultReason(res))
     : `${NAME[game.turn()]} to move${game.inCheck() ? ' (check!)' : ''}`;
   btn('chat').hidden = btn('chatBtn').hidden = !online;
   if (online) {
@@ -776,7 +777,7 @@ function update() {
     btn('rematchBtn').textContent = online.rematch.includes(me) ? 'Rematch requested' : online.rematch.includes(opp) ? 'Accept rematch' : 'Rematch';
     btn('rematchBtn').disabled = online.rematch.includes(me);
   }
-  statusEl.textContent = statusEl.title = text;
+  statusEl.textContent = statusEl.title = baseStatus = text;
   const key = res && game.pgn() + res.reason;
   if (key && key !== shownOver && btn('lobby').hidden) {
     shownOver = key;
@@ -941,7 +942,7 @@ async function onServer(m) {
   }
   if (m.t === 'state') {
     Object.assign(online, { color: m.you, seats: m.seats, tc: m.tc, clock: m.clock, clockAt: performance.now(),
-      result: m.result, drawOffer: m.drawOffer, rematch: m.rematch, watchers: m.watchers, players: m.players });
+      result: m.result, drawOffer: m.drawOffer, rematch: m.rematch, watchers: m.watchers, players: m.players, firstMoveMs: m.firstMoveMs });
     const mine = m.you && m.players[m.you];
     if (mine && mine.name === me?.name) { Object.assign(me, mine); btn('account').textContent = rated(me); }
     await idle();
@@ -1013,6 +1014,11 @@ function cardName(side) {
   return NAME[side];
 }
 setInterval(() => {
+  // first-move countdown: the game is aborted if it reaches zero
+  if (online?.firstMoveMs != null && !online.result) {
+    const left = Math.max(0, Math.ceil((online.firstMoveMs - (performance.now() - online.clockAt)) / 1000)), side = game.turn();
+    statusEl.textContent = `${baseStatus} · ${side === online.color ? 'Make your first move' : `${NAME[side]} to make a first move`} within ${left}s`;
+  }
   const c = online?.clock, bottom = camera.position.z >= 0 ? 'w' : 'b', over = currentResult();
   for (const [id, side] of [['cardBottom', bottom], ['cardTop', otherColor(bottom)]]) {
     const card = btn(id), clock = card.querySelector('.pclock'), avatar = card.querySelector('.avatar');
