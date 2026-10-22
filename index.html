@@ -1,0 +1,368 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>3D Chess</title>
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #1d1f24; font-family: system-ui, sans-serif; color: #eee; }
+  #hud { position: fixed; top: 12px; left: 12px; right: 12px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  #status { background: #000a; padding: 8px 12px; border-radius: 8px; }
+  button { background: #333c; color: #eee; border: 1px solid #666; border-radius: 8px; padding: 8px 12px; cursor: pointer; font: inherit; }
+  button:hover { background: #444; }
+  select { background: #333c; color: #eee; border: 1px solid #666; border-radius: 8px; padding: 8px; font: inherit; }
+  select:disabled { opacity: 0.4; }
+  label { background: #000a; padding: 8px 12px; border-radius: 8px; cursor: pointer; }
+  #captured { position: fixed; bottom: 12px; left: 12px; right: 12px; display: flex; flex-direction: column; gap: 4px; pointer-events: none; }
+  #captured div { background: #000a; padding: 6px 12px; border-radius: 8px; align-self: flex-start; font-size: 20px; }
+  #captured div:empty { display: none; }
+  dialog { background: #2a2d33; color: #eee; border: 1px solid #666; border-radius: 12px; text-align: center; }
+  dialog::backdrop { background: #0008; }
+  dialog button { font-size: 36px; width: 64px; height: 64px; margin: 4px; }
+</style>
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/",
+  "chess.js": "https://cdn.jsdelivr.net/npm/chess.js@1.4.0/+esm"
+} }
+</script>
+</head>
+<body>
+<div id="hud">
+  <span id="status"></span>
+  <button id="undo">Undo</button>
+  <button id="reset">New game</button>
+  <button id="flip">Flip board</button>
+  <label><input type="checkbox" id="autoflip"> Auto-flip</label>
+  <select id="mode" aria-label="Opponent">
+    <option value="2p">2 players</option>
+    <option value="easy">vs CPU: Easy</option>
+    <option value="medium">vs CPU: Medium</option>
+    <option value="hard">vs CPU: Hard</option>
+    <option value="max">vs CPU: Max</option>
+  </select>
+  <select id="side" aria-label="Your colour">
+    <option value="w">Play White</option>
+    <option value="b">Play Black</option>
+  </select>
+</div>
+<div id="captured"><div id="capW"></div><div id="capB"></div></div>
+<dialog id="promo">
+  <p>Promote to</p>
+  <form method="dialog">
+    <button value="q" title="Queen">♕&#xFE0E;</button><button value="r" title="Rook">♖&#xFE0E;</button><button value="b" title="Bishop">♗&#xFE0E;</button><button value="n" title="Knight">♘&#xFE0E;</button>
+  </form>
+</dialog>
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { Chess } from 'chess.js';
+
+const game = new Chess();
+
+// --- scene ---
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x1d1f24);
+const camera = new THREE.PerspectiveCamera(45, innerWidth / innerHeight, 0.1, 100);
+camera.position.set(0, 10, 10);
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(devicePixelRatio);
+renderer.setSize(innerWidth, innerHeight);
+renderer.shadowMap.enabled = true;
+document.body.appendChild(renderer.domElement);
+
+const controls = new OrbitControls(camera, renderer.domElement);
+Object.assign(controls, { enableDamping: true, enablePan: false, minDistance: 6, maxDistance: 25, maxPolarAngle: Math.PI / 2.2 });
+
+scene.add(new THREE.HemisphereLight(0xffffff, 0x444444, 1.2));
+const sun = new THREE.DirectionalLight(0xffffff, 2);
+sun.position.set(5, 12, 6);
+sun.castShadow = true;
+sun.shadow.mapSize.set(2048, 2048);
+Object.assign(sun.shadow.camera, { left: -6, right: 6, top: 6, bottom: -6 });
+scene.add(sun);
+
+// --- board ---
+const FILES = 'abcdefgh';
+const toPos = sq => [FILES.indexOf(sq[0]) - 3.5, 3.5 - (sq[1] - 1)]; // [x, z], white sits at +z
+
+const frame = new THREE.Mesh(new THREE.BoxGeometry(9, 0.3, 9), new THREE.MeshStandardMaterial({ color: 0x3b2516 }));
+frame.position.y = -0.16;
+frame.receiveShadow = true;
+scene.add(frame);
+
+const squares = {};
+for (let f = 0; f < 8; f++) for (let r = 0; r < 8; r++) {
+  const sq = FILES[f] + (r + 1);
+  const base = (f + r) % 2 === 0 ? 0x8b5a3c : 0xe8d6b0; // a1 is dark
+  const m = new THREE.Mesh(new THREE.BoxGeometry(1, 0.2, 1), new THREE.MeshStandardMaterial({ color: base }));
+  const [x, z] = toPos(sq);
+  m.position.set(x, -0.1, z);
+  m.receiveShadow = true;
+  m.userData = { sq, base };
+  scene.add(m);
+  squares[sq] = m;
+}
+
+// --- pieces (built from primitives) ---
+const mats = {
+  w: new THREE.MeshStandardMaterial({ color: 0xf2efe6, roughness: 0.4 }),
+  b: new THREE.MeshStandardMaterial({ color: 0x2a2a2e, roughness: 0.4 }),
+};
+const HEIGHT = { p: 0.35, r: 0.5, n: 0.45, b: 0.6, q: 0.75, k: 0.85 };
+
+function part(geo, y, mat) {
+  const m = new THREE.Mesh(geo, mat);
+  m.position.y = y;
+  m.castShadow = true;
+  return m;
+}
+
+function makePiece(type, color) {
+  const mat = mats[color], g = new THREE.Group(), h = HEIGHT[type], top = 0.12 + h;
+  g.add(part(new THREE.CylinderGeometry(0.32, 0.38, 0.12, 32), 0.06, mat));
+  g.add(part(new THREE.CylinderGeometry(type === 'r' ? 0.24 : 0.13, 0.26, h, 32), 0.12 + h / 2, mat));
+  switch (type) {
+    case 'p': g.add(part(new THREE.SphereGeometry(0.17, 32, 16), top + 0.1, mat)); break;
+    case 'r': g.add(part(new THREE.CylinderGeometry(0.3, 0.28, 0.18, 32), top + 0.09, mat)); break;
+    case 'n': {
+      const head = part(new THREE.BoxGeometry(0.22, 0.42, 0.5), top + 0.12, mat);
+      head.position.z = -0.08;
+      head.rotation.x = -0.5; // leans toward -z (the opponent, for white)
+      g.add(head);
+      break;
+    }
+    case 'b': {
+      const s = part(new THREE.SphereGeometry(0.18, 32, 16), top + 0.15, mat);
+      s.scale.y = 1.5;
+      g.add(s, part(new THREE.SphereGeometry(0.05, 16, 8), top + 0.43, mat));
+      break;
+    }
+    case 'q':
+      g.add(part(new THREE.CylinderGeometry(0.24, 0.14, 0.2, 32), top + 0.1, mat),
+            part(new THREE.SphereGeometry(0.08, 16, 8), top + 0.26, mat));
+      break;
+    case 'k':
+      g.add(part(new THREE.CylinderGeometry(0.22, 0.14, 0.18, 32), top + 0.09, mat),
+            part(new THREE.BoxGeometry(0.08, 0.3, 0.08), top + 0.33, mat),
+            part(new THREE.BoxGeometry(0.22, 0.08, 0.08), top + 0.36, mat));
+      break;
+  }
+  if (color === 'b') g.rotation.y = Math.PI;
+  return g;
+}
+
+const pieceGroup = new THREE.Group();
+scene.add(pieceGroup);
+
+// ponytail: animates the old meshes, then rebuilds every piece; fine at 32 pieces
+function syncPieces() {
+  pieceGroup.traverse(o => o.geometry?.dispose());
+  pieceGroup.clear();
+  for (const p of game.board().flat()) if (p) {
+    const g = makePiece(p.type, p.color);
+    const [x, z] = toPos(p.square);
+    g.position.set(x, 0, z);
+    g.userData.sq = p.square;
+    pieceGroup.add(g);
+  }
+}
+
+// --- animation ---
+const ease = t => t < 0.5 ? 2 * t * t : 1 - (-2 * t + 2) ** 2 / 2;
+const tween = (ms, step) => new Promise(done => {
+  const t0 = performance.now();
+  const frame = now => {
+    const t = Math.min(1, (now - t0) / ms);
+    step(ease(t), t);
+    t < 1 ? requestAnimationFrame(frame) : done();
+  };
+  requestAnimationFrame(frame);
+});
+const pieceAt = sq => pieceGroup.children.find(g => g.userData.sq === sq);
+
+function animateMove(m) {
+  const rank = m.from[1], slides = [[m.from, m.to]];
+  if (m.flags.includes('k')) slides.push(['h' + rank, 'f' + rank]); // castling rook
+  if (m.flags.includes('q')) slides.push(['a' + rank, 'd' + rank]);
+  const capSq = m.flags.includes('e') ? m.to[0] + m.from[1] : m.captured && m.to;
+  const victim = capSq && pieceAt(capSq);
+  const runs = slides.map(([a, b]) => ({ g: pieceAt(a), a: toPos(a), b: toPos(b) }));
+  return tween(400, (e, t) => {
+    for (const { g, a, b } of runs) g.position.set(a[0] + (b[0] - a[0]) * e, Math.sin(t * Math.PI) * 0.6, a[1] + (b[1] - a[1]) * e);
+    victim?.scale.setScalar(Math.max(0.001, 1 - t));
+  });
+}
+
+// --- camera flip ---
+function flipCamera() {
+  const p = camera.position, r = Math.hypot(p.x, p.z), y = p.y, start = Math.atan2(p.x, p.z);
+  return tween(700, e => {
+    const a = start + Math.PI * e;
+    camera.position.set(Math.sin(a) * r, y, Math.cos(a) * r);
+    camera.lookAt(0, 0, 0);
+  });
+}
+const autoflip = document.getElementById('autoflip');
+function faceSideToMove() {
+  // vs CPU: always face the human; 2 players: face whoever moves if auto-flip is on
+  const facing = cpuColor() ? (cpuColor() === 'w' ? 'b' : 'w') : autoflip.checked && game.turn();
+  if (!facing) return;
+  const wantZ = facing === 'w' ? 1 : -1; // white sits at +z
+  if (Math.sign(camera.position.z) !== wantZ) return flipCamera();
+}
+
+// --- computer opponent (Stockfish 10, runs in a Web Worker) ---
+const SF_URL = 'https://cdnjs.cloudflare.com/ajax/libs/stockfish.js/10.0.2/stockfish.js';
+const engine = new Worker(URL.createObjectURL(new Blob([`importScripts('${SF_URL}')`], { type: 'application/javascript' })));
+engine.postMessage('uci');
+const LEVELS = { easy: [0, 100], medium: [8, 300], hard: [15, 800], max: [20, 2000] }; // [Skill Level 0-20, think time ms]
+const modeEl = document.getElementById('mode'), sideEl = document.getElementById('side');
+const cpuColor = () => modeEl.value === '2p' ? null : sideEl.value === 'w' ? 'b' : 'w';
+
+function bestMove(fen, skill, ms) {
+  return new Promise(res => {
+    engine.onmessage = e => {
+      const m = /^bestmove (\S+)/.exec(e.data);
+      if (m) res(m[1]);
+    };
+    engine.postMessage(`setoption name Skill Level value ${skill}`);
+    engine.postMessage(`position fen ${fen}`);
+    engine.postMessage(`go movetime ${ms}`);
+  });
+}
+
+async function maybeCpu() {
+  if (game.turn() !== cpuColor() || game.isGameOver()) return;
+  busy = true;
+  statusEl.textContent = 'Computer is thinking…';
+  const [skill, ms] = LEVELS[modeEl.value];
+  const uci = await bestMove(game.fen(), skill, ms); // e.g. "e7e8q"
+  busy = false;
+  await playMove({ from: uci.slice(0, 2), to: uci.slice(2, 4), promotion: uci[4] });
+}
+
+// --- captured pieces ---
+const VAL = { p: 1, n: 3, b: 3, r: 5, q: 9 };
+const GLYPH = { w: { p: '♙', n: '♘', b: '♗', r: '♖', q: '♕' }, b: { p: '♟', n: '♞', b: '♝', r: '♜', q: '♛' } };
+const capEl = { w: document.getElementById('capW'), b: document.getElementById('capB') };
+function showCaptured() {
+  const caps = { w: [], b: [] }; // pieces taken BY each colour
+  for (const m of game.history({ verbose: true })) if (m.captured) caps[m.color].push(m.captured);
+  const score = c => caps[c].reduce((s, p) => s + VAL[p], 0);
+  for (const c of ['w', 'b']) {
+    const other = c === 'w' ? 'b' : 'w', diff = score(c) - score(other);
+    capEl[c].textContent = caps[c].length
+      ? `${c === 'w' ? 'White' : 'Black'}: ${caps[c].sort((x, y) => VAL[y] - VAL[x]).map(p => GLYPH[other][p] + '︎').join('')}${diff > 0 ? ' +' + diff : ''}`
+      : '';
+  }
+}
+
+// --- promotion picker ---
+const promo = document.getElementById('promo');
+function pickPromotion() {
+  promo.returnValue = '';
+  promo.showModal();
+  return new Promise(res => promo.addEventListener('close', () => res(promo.returnValue), { once: true })); // '' = cancelled (Esc)
+}
+
+// --- selection + highlights ---
+let selected = null, targets = [], busy = false;
+const statusEl = document.getElementById('status');
+
+function paint() {
+  for (const m of Object.values(squares)) m.material.color.setHex(m.userData.base);
+  const last = game.history({ verbose: true }).at(-1);
+  if (last) for (const s of [last.from, last.to]) squares[s].material.color.setHex(0xc9b44a);
+  if (game.inCheck()) {
+    const king = game.board().flat().find(p => p && p.type === 'k' && p.color === game.turn());
+    squares[king.square].material.color.setHex(0xd04040);
+  }
+  if (selected) squares[selected].material.color.setHex(0x5fa8d3);
+  for (const m of targets) squares[m.to].material.color.setHex(m.captured ? 0xd9734a : 0x7cc47f);
+}
+
+function update() {
+  paint();
+  showCaptured();
+  const side = game.turn() === 'w' ? 'White' : 'Black';
+  statusEl.textContent =
+    game.isCheckmate() ? `Checkmate: ${side === 'White' ? 'Black' : 'White'} wins` :
+    game.isDraw() ? 'Draw' :
+    `${side} to move${game.inCheck() ? ' (check!)' : ''}`;
+}
+
+async function playMove(mv) {
+  busy = true;
+  const m = game.move(mv);
+  update();
+  await animateMove(m);
+  syncPieces();
+  await faceSideToMove();
+  busy = false;
+  maybeCpu();
+}
+
+async function onSquare(sq) {
+  if (busy || game.isGameOver() || game.turn() === cpuColor()) return;
+  const move = targets.find(m => m.to === sq), prev = selected;
+  selected = null; targets = [];
+  if (move) {
+    busy = true;
+    const promotion = move.promotion && await pickPromotion();
+    busy = false;
+    if (move.promotion && !promotion) return update();
+    return playMove({ from: move.from, to: sq, promotion });
+  }
+  const p = game.get(sq);
+  if (p && p.color === game.turn() && sq !== prev) {
+    selected = sq;
+    targets = game.moves({ square: sq, verbose: true });
+  }
+  update();
+}
+
+// click (but not drag-to-orbit) picks a square
+const ray = new THREE.Raycaster(), ptr = new THREE.Vector2();
+let down = null;
+renderer.domElement.addEventListener('pointerdown', e => { down = [e.clientX, e.clientY]; });
+renderer.domElement.addEventListener('pointerup', e => {
+  if (!down || Math.hypot(e.clientX - down[0], e.clientY - down[1]) > 5) return;
+  ptr.set(e.clientX / innerWidth * 2 - 1, -(e.clientY / innerHeight) * 2 + 1);
+  ray.setFromCamera(ptr, camera);
+  const hit = ray.intersectObjects([pieceGroup, ...Object.values(squares)], true)[0];
+  let o = hit?.object;
+  while (o && !o.userData.sq) o = o.parent;
+  if (o) onSquare(o.userData.sq);
+});
+
+async function restart(fn) {
+  if (busy) return;
+  busy = true;
+  await fn(); selected = null; targets = []; syncPieces(); update();
+  sideEl.disabled = !cpuColor();
+  await faceSideToMove();
+  busy = false;
+  maybeCpu();
+}
+document.getElementById('undo').onclick = () => restart(() => {
+  game.undo();
+  if (game.turn() === cpuColor()) game.undo(); // vs CPU: take back the CPU reply too
+});
+document.getElementById('reset').onclick = () => restart(() => game.reset());
+document.getElementById('flip').onclick = () => restart(flipCamera);
+autoflip.onchange = modeEl.onchange = sideEl.onchange = () => restart(() => {});
+
+addEventListener('resize', () => {
+  camera.aspect = innerWidth / innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+});
+
+restart(() => {});
+renderer.setAnimationLoop(() => { controls.update(); renderer.render(scene, camera); });
+Object.assign(window, { game, restart }); // console debugging: restart(() => game.load(fen))
+</script>
+</body>
+</html>
