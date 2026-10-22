@@ -90,7 +90,7 @@
   .pclock.running.low { background: var(--danger); color: #fff; }
 
   /* ---------- action dock ---------- */
-  #dock { position: fixed; z-index: 2; bottom: 16px; left: 50%; transform: translateX(-50%); display: flex; gap: 6px; padding: 6px; }
+  #dock { position: fixed; z-index: 2; bottom: 16px; right: 16px; display: flex; gap: 6px; padding: 6px; } /* right side: clear of the bottom player card */
   #dock button { display: inline-flex; align-items: center; gap: 8px; }
   #dock button::before { content: attr(data-icon); font-size: 16px; line-height: 1; }
 
@@ -98,6 +98,8 @@
   #drawer { position: fixed; z-index: 4; top: 68px; right: 12px; bottom: 12px; width: 340px; overflow-y: auto; padding: 6px 16px 16px;
             display: flex; flex-direction: column; transform: translateX(calc(100% + 24px)); transition: transform .28s var(--ease); }
   .drawer-open #drawer { transform: none; }
+  .drawer-open #dock, .drawer-open #toasts { right: 368px; } /* stay usable beside the open drawer */
+  #dock, #toasts { transition: right .28s var(--ease); }
   #drawer section { padding: 14px 0; border-bottom: 1px solid var(--line); }
   #drawer section:last-child { border-bottom: none; }
   #drawer h3 { font-size: 20px; margin-bottom: 10px; color: var(--gold); }
@@ -151,13 +153,19 @@
   dialog::backdrop { background: rgba(4, 4, 6, .62); backdrop-filter: blur(3px); }
   dialog h2 { font-size: 30px; margin-bottom: 6px; }
   dialog p { color: var(--muted); margin: 0 0 14px; }
-  #promo button { font-size: 40px; width: 72px; height: 72px; margin: 4px; padding: 0; }
+  #promo form { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; }
+  #promo button { width: 86px; padding: 10px 0 12px; display: flex; flex-direction: column; align-items: center; gap: 6px; color: var(--muted); font-size: 12px; }
+  #promo button:hover { color: var(--text); }
+  .glyph { font: 48px/1 'Apple Symbols', 'Segoe UI Symbol', 'Noto Sans Symbols 2', 'DejaVu Sans', serif; color: var(--text); }
   #tcPick form { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
   #tcPick button { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; padding: 14px; min-width: 140px; }
   #tcPick b { font-size: 18px; }
   #tcPick small { color: var(--muted); font-size: 12px; }
   #over form { display: flex; gap: 8px; justify-content: center; margin-top: 18px; }
-  #overTitle { font-size: 40px; }
+  #overTitle { font-size: 44px; }
+  .over-mark { width: 64px; height: 64px; margin: 0 auto 10px; border-radius: 50%; display: grid; place-items: center; font: 34px/1 'Apple Symbols', 'Segoe UI Symbol', serif;
+               color: var(--gold); background: var(--gold-soft); border: 1px solid rgba(212, 175, 106, .4); }
+  #overReason::first-letter { text-transform: uppercase; }
   #auth form, #profile > div { display: flex; flex-direction: column; gap: 10px; width: min(380px, 80vw); text-align: left; }
   #auth label { color: var(--muted); }
   #auth .row, #profile .row { justify-content: flex-end; margin-top: 6px; }
@@ -167,18 +175,42 @@
   #profileGames li { display: flex; gap: 10px; align-items: center; justify-content: space-between; background: rgba(0, 0, 0, .25);
                      border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 8px 8px 8px 12px; }
 
+  /* ---------- chat button, notifications, loading ---------- */
+  #chatBtn { position: relative; }
+  .badge { position: absolute; top: -6px; right: -6px; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; display: grid; place-items: center;
+           background: var(--gold); color: var(--gold-ink); font: 600 11px/1 var(--sans); box-shadow: 0 0 0 2px var(--bg); }
+  #toasts { position: fixed; z-index: 5; top: 70px; right: 16px; width: min(360px, calc(100vw - 24px));
+            display: flex; flex-direction: column; gap: 8px; pointer-events: none; }
+  .toast { pointer-events: auto; padding: 10px 14px; border-left: 3px solid var(--gold); animation: toast-in .25s var(--ease); overflow-wrap: anywhere; }
+  .toast b { color: var(--gold); font-weight: 600; }
+  .toast.error { border-left-color: var(--danger); }
+  .toast.leaving { opacity: 0; transform: translateY(-6px); transition: opacity .3s, transform .3s; }
+  @keyframes toast-in { from { opacity: 0; transform: translateY(-8px); } }
+  #loading { position: fixed; z-index: 6; inset: 0; display: grid; place-content: center; justify-items: center; gap: 16px; color: var(--muted);
+             background: var(--bg); transition: opacity .5s var(--ease); }
+  #loading.done { opacity: 0; pointer-events: none; }
+  #loading .brand-mark { width: 56px; height: 56px; font-size: 30px; }
+  #loading .spinner { width: 22px; height: 22px; }
+  #confirmDlg form { display: flex; gap: 8px; justify-content: center; margin-top: 18px; }
+  button.danger { background: var(--danger); border-color: var(--danger); color: #fff; font-weight: 600; }
+  button.danger:hover:not(:disabled) { background: #e88a84; border-color: #e88a84; }
+
   /* ---------- phones ---------- */
   @media (max-width: 720px) {
     #topbar { height: 54px; padding: 0 10px; gap: 8px; }
     .brand-name { display: none; }
-    #status { font-size: 13px; }
+    #status { position: absolute; top: 54px; left: 10px; right: 10px; font-size: 12px; } /* its own line under the bar */
+    .top-actions { margin-left: auto; }
     #online, #account { padding: 9px 10px; }
+    #account { max-width: 130px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: block !important; }
+    #account[hidden] { display: none !important; }
     .player-card { width: calc(100vw - 20px); left: 10px; padding: 8px 10px; }
-    #cardTop { top: 60px; }
+    #cardTop { top: 78px; }
     #cardBottom { bottom: 70px; }
     .pclock { font-size: 19px; min-width: 76px; }
-    #dock { bottom: 10px; max-width: calc(100vw - 20px); }
+    #dock, .drawer-open #dock { bottom: 10px; right: auto; left: 50%; transform: translateX(-50%); max-width: calc(100vw - 20px); }
     #dock button { font-size: 0; gap: 0; padding: 11px 13px; } /* icons only; the text stays as the accessible name */
+    #toasts, .drawer-open #toasts { top: 142px; right: 12px; }
     #dock button::before { font-size: 18px; }
     #drawer { top: auto; left: 0; right: 0; bottom: 0; width: auto; max-height: 72vh; border-radius: 18px 18px 0 0; transform: translateY(105%); }
     .tc-grid { grid-template-columns: repeat(2, 1fr); }
@@ -226,6 +258,7 @@
   <button id="drawBtn" class="online-only" data-icon="½" hidden>Offer draw</button>
   <button id="declineBtn" class="online-only" data-icon="✕" hidden>Decline draw</button>
   <button id="rematchBtn" class="online-only primary" data-icon="↻" hidden>Rematch</button>
+  <button id="chatBtn" class="online-only" data-icon="💬" aria-label="Chat" hidden>Chat<span id="chatBadge" class="badge" hidden></span></button>
 </div>
 
 <aside id="drawer" class="glass" aria-label="Moves, chat and settings">
@@ -318,12 +351,13 @@
     <button value="1+0"><b>1+0</b><small>Bullet</small></button><button value="3+2"><b>3+2</b><small>Blitz</small></button>
     <button value="5+3"><b>5+3</b><small>Blitz</small></button><button value="10+0"><b>10+0</b><small>Rapid</small></button>
     <button value="15+10"><b>15+10</b><small>Rapid</small></button><button value="none"><b>∞</b><small>No clock</small></button>
+    <button value="" class="link" style="grid-column: 1 / -1; min-width: 0; align-items: center">Cancel</button>
   </form>
 </dialog>
 <dialog id="auth">
   <form id="authForm">
-    <h2>Welcome back</h2>
-    <p style="margin: 0">Sign in to keep a rating and your game history.</p>
+    <h2>Sign in</h2>
+    <p style="margin: 0">New here? Pick a name and password, then choose Create account. Your rating and games are saved.</p>
     <label for="authName">Name</label>
     <input id="authName" autocomplete="username" required minlength="3" maxlength="20" pattern="[A-Za-z0-9_]+">
     <label for="authPass">Password</label>
@@ -345,14 +379,25 @@
   </div>
 </dialog>
 <dialog id="over">
+  <div id="overMark" class="over-mark" aria-hidden="true"></div>
   <h2 id="overTitle"></h2>
   <p id="overReason"></p>
   <form method="dialog"><button value="" class="ghost">View board</button><button id="again" value="again" class="primary"></button></form>
 </dialog>
+<div id="toasts" aria-live="polite"></div>
+<div id="loading" role="status"><span class="brand-mark" aria-hidden="true">♞</span><span class="spinner" aria-hidden="true"></span><span id="loadingText">Setting up the board…</span></div>
+<dialog id="confirmDlg">
+  <h2 id="confirmTitle"></h2>
+  <p id="confirmText"></p>
+  <form method="dialog"><button value="" class="ghost">Cancel</button><button id="confirmOk" value="ok"></button></form>
+</dialog>
 <dialog id="promo">
   <h2>Promote to</h2>
   <form method="dialog">
-    <button value="q" title="Queen">♕&#xFE0E;</button><button value="r" title="Rook">♖&#xFE0E;</button><button value="b" title="Bishop">♗&#xFE0E;</button><button value="n" title="Knight">♘&#xFE0E;</button>
+    <button value="q"><span class="glyph" aria-hidden="true">♕&#xFE0E;</span>Queen</button>
+    <button value="r"><span class="glyph" aria-hidden="true">♖&#xFE0E;</span>Rook</button>
+    <button value="b"><span class="glyph" aria-hidden="true">♗&#xFE0E;</span>Bishop</button>
+    <button value="n"><span class="glyph" aria-hidden="true">♘&#xFE0E;</span>Knight</button>
   </form>
 </dialog>
 <script type="module">
@@ -470,6 +515,9 @@ const makePiece = (type, color) => realSet[type + color].clone(); // clones shar
 
 // "Chess Set" by Riley Queen, Poly Haven, CC0. Model units are metres; one square is 0.057888 m.
 new GLTFLoader().load('/models/chess_set/chess_set_1k.gltf', gltf => {
+  const loading = document.getElementById('loading');
+  loading.classList.add('done');
+  setTimeout(() => loading.remove(), 600); // after the fade
   const S = 1 / 0.057888, get = name => gltf.scene.getObjectByName(name);
   const NAMES = { p: 'pawn', n: 'knight', b: 'bishop', r: 'rook', q: 'queen', k: 'king' };
   realSet = {};
@@ -491,6 +539,9 @@ new GLTFLoader().load('/models/chess_set/chess_set_1k.gltf', gltf => {
   applyTheme(themeEl.value);
   paint();
   syncPieces();
+}, undefined, () => {
+  document.querySelector('#loading .spinner').hidden = true;
+  document.getElementById('loadingText').textContent = "Couldn't load the chess pieces. Check your connection and reload the page.";
 });
 
 const pieceGroup = new THREE.Group();
@@ -599,6 +650,25 @@ function showCaptured() {
 
 // --- promotion picker ---
 const promo = document.getElementById('promo');
+// short notifications over the board: chat messages, errors, confirmations
+function toast(content, kind = 'info', ms = 4500) {
+  const box = document.getElementById('toasts'), el = document.createElement('div');
+  el.className = `toast glass ${kind}`;
+  el.append(...(Array.isArray(content) ? content : [content]));
+  box.append(el);
+  while (box.children.length > 3) box.firstElementChild.remove();
+  setTimeout(() => { el.classList.add('leaving'); setTimeout(() => el.remove(), 300); }, ms);
+}
+// a styled replacement for confirm(); resolves true when the user agrees
+async function askConfirm(title, text, ok, danger = false) {
+  document.getElementById('confirmTitle').textContent = title;
+  document.getElementById('confirmText').textContent = text;
+  const okBtn = document.getElementById('confirmOk');
+  okBtn.textContent = ok;
+  okBtn.className = danger ? 'danger' : 'primary';
+  return await ask(document.getElementById('confirmDlg')) === 'ok';
+}
+
 // open a <dialog> and resolve with the button value it closed with ('' = cancelled with Esc)
 function ask(dlg) {
   dlg.returnValue = '';
@@ -665,7 +735,9 @@ let shownOver = null; // which finished game the dialog was last shown for
 function showOver(r) {
   document.getElementById('overTitle').textContent = resultTitle(r);
   const change = online?.color && r.changes?.[online.color];
-  document.getElementById('overReason').textContent = resultReason(r) + (change != null ? ` · rating ${change >= 0 ? '+' : ''}${change}` : '');
+  const how = r.winner ? { checkmate: 'by checkmate', resignation: 'by resignation', timeout: 'on time' }[r.reason] : `by ${r.reason}`;
+  document.getElementById('overReason').textContent = how + (change != null ? ` · rating ${change >= 0 ? '+' : ''}${change}` : '');
+  document.getElementById('overMark').textContent = !r.winner ? '½' : online?.color && r.winner !== online.color ? '♚\uFE0E' : '♔\uFE0E';
   againBtn.textContent = !online ? 'New game' : online.rematch.includes(otherColor(online.color)) ? 'Accept rematch' : 'Rematch';
   againBtn.hidden = online && !online.color; // spectators can't rematch
   if (!over.open) ask(over).then(v => {
@@ -683,7 +755,7 @@ function update() {
   const res = currentResult();
   let text = res ? (res.winner ? `${resultTitle(res)} · ${resultReason(res)}` : resultReason(res))
     : `${NAME[game.turn()]} to move${game.inCheck() ? ' (check!)' : ''}`;
-  btn('chat').hidden = !online;
+  btn('chat').hidden = btn('chatBtn').hidden = !online;
   if (online) {
     const me = online.color, opp = otherColor(me ?? 'w'), oppSeat = online.seats[opp];
     const playing = !res && online.seats.w && online.seats.b && !!me;
@@ -705,7 +777,13 @@ function update() {
   }
   statusEl.textContent = statusEl.title = text;
   const key = res && game.pgn() + res.reason;
-  if (key && key !== shownOver && btn('lobby').hidden) { shownOver = key; setTimeout(() => showOver(res), 700); } // after the last move lands; not over the menu
+  if (key && key !== shownOver && btn('lobby').hidden) {
+    shownOver = key;
+    setTimeout(() => { // after the last move lands, and only if that game is still the one on the board
+      const now = currentResult();
+      if (now && game.pgn() + now.reason === key) showOver(now);
+    }, 700);
+  }
   if (!res && over.open) over.close(); // a rematch started
   if (res && over.open) showOver(res); // refresh the button label
 }
@@ -770,7 +848,10 @@ document.getElementById('undo').onclick = () => restart(() => {
   game.undo();
   if (game.turn() === cpuColor()) game.undo(); // vs CPU: take back the CPU reply too
 });
-document.getElementById('reset').onclick = () => restart(() => game.reset());
+document.getElementById('reset').onclick = async () => {
+  if (game.history().length && !game.isGameOver() && !await askConfirm('Start a new game?', 'The current game will be lost.', 'New game')) return;
+  restart(() => game.reset());
+};
 document.getElementById('flip').onclick = () => restart(flipCamera);
 autoflip.onchange = modeEl.onchange = sideEl.onchange = () => restart(() => {});
 themeEl.onchange = () => { store.set('theme', themeEl.value); applyTheme(themeEl.value); paint(); };
@@ -790,12 +871,18 @@ pgnFile.onchange = async () => {
   const text = await pgnFile.files[0]?.text();
   pgnFile.value = ''; // lets the same file be picked again
   if (!text) return;
-  try { new Chess().loadPgn(text); } catch { return alert('Could not read that PGN file.'); } // validate on a scratch board first
+  try { new Chess().loadPgn(text); } catch { return toast("That file isn't a PGN this game can read.", 'error'); } // validate on a scratch board first
   restart(() => game.loadPgn(text));
 };
 
 // --- online play: private 1v1 rooms on the game server (server.js) ---
 let online = null, net = null; // online = { room, color, seats } once the server seats us
+let unread = 0, chatHistoryNext = false;
+function setUnread(n) {
+  unread = n;
+  btn('unread').hidden = btn('chatBadge').hidden = !n;
+  btn('chatBadge').textContent = n > 9 ? '9+' : n;
+}
 // ponytail: seat tokens are per tab, so two tabs can play each other and a refresh keeps the seat;
 // a closed tab can't reclaim its seat until accounts exist (M4)
 const seatStore = makeStore('sessionStorage');
@@ -813,7 +900,11 @@ function connect(hello) {
 const rejoin = () => ({ t: 'join', room: online.room, token: seatStore.get('seat:' + online.room) });
 
 async function onServer(m) {
-  if (m.t === 'error') { statusEl.textContent = m.msg; return; }
+  if (m.t === 'error') {
+    toast(m.msg, 'error', 7000);
+    if (!online) { history.replaceState(null, '', '/'); showLobby(); } // a dead link: back to the menu
+    return;
+  }
   if (m.t === 'lobby') return showLobbyGames(m.games);
   if (m.t === 'seeking') {
     for (const b of document.querySelectorAll('#seekBtns button')) b.classList.toggle('seeking', b.dataset.tc === m.tc);
@@ -821,20 +912,25 @@ async function onServer(m) {
     return;
   }
   if (m.t === 'chat') {
-    const log = btn('chatLog');
+    const log = btn('chatLog'), history = chatHistoryNext;
+    chatHistoryNext = false;
     for (const { from, name, text } of m.log) {
       const li = document.createElement('li'), who = document.createElement('b');
       who.textContent = (name ?? NAME[from]) + ': ';
       li.append(who, text);
       log.append(li);
+      if (!history && from !== online?.color && !document.body.classList.contains('drawer-open')) {
+        setUnread(unread + 1);
+        toast([who.cloneNode(true), text], 'chat');
+      }
     }
     log.scrollTop = log.scrollHeight;
-    if (m.log.length && !document.body.classList.contains('drawer-open')) btn('unread').hidden = false;
     return;
   }
   if (m.t === 'joined') {
     btn('lobby').hidden = true;
-    btn('chatLog').replaceChildren(); // the server sends the room's chat history next
+    btn('chatLog').replaceChildren();
+    chatHistoryNext = true; // the server sends the room's chat history next; don't announce it
     seatStore.set('seat:' + m.room, m.token); // lets a refresh take the same seat back
     online = { room: m.room, color: 'w', seats: {}, rematch: [] }; // the state message that follows fills the rest
     history.replaceState(null, '', '/g/' + m.room);
@@ -886,13 +982,18 @@ const playLocal = mode => { send({ t: 'cancelSeek' }); btn('lobby').hidden = tru
 btn('vsCpu').onclick = () => playLocal(modeEl.value === '2p' ? 'medium' : modeEl.value);
 btn('local2p').onclick = () => playLocal('2p');
 btn('closeLobby').onclick = () => { send({ t: 'cancelSeek' }); btn('lobby').hidden = true; update(); };
-document.getElementById('online').onclick = () => online ? location.href = '/' : showLobby();
+document.getElementById('online').onclick = async () => {
+  if (!online) return showLobby();
+  const mid = online.color && !online.result && online.seats.w && online.seats.b && game.history().length;
+  if (mid && !await askConfirm('Leave this game?', 'Your clock keeps running, and you can come back with the same link.', 'Leave')) return;
+  location.href = '/';
+};
 btn('chatForm').onsubmit = e => {
   e.preventDefault();
   send({ t: 'chat', text: btn('chatInput').value });
   btn('chatInput').value = '';
 };
-btn('resign').onclick = () => confirm('Resign this game?') && send({ t: 'resign' });
+btn('resign').onclick = async () => { if (await askConfirm('Resign?', 'Your opponent wins this game.', 'Resign', true)) send({ t: 'resign' }); };
 btn('drawBtn').onclick = () => send({ t: 'draw' });
 btn('declineBtn').onclick = () => send({ t: 'decline' });
 btn('rematchBtn').onclick = () => send({ t: 'rematch' });
@@ -928,7 +1029,7 @@ setInterval(() => {
   }
 }, 100);
 document.getElementById('copy').onclick = () => navigator.clipboard?.writeText(shareUrl.value).then(
-  () => document.getElementById('copy').textContent = 'Copied!', () => shareUrl.select());
+  () => { document.getElementById('copy').textContent = 'Copied!'; toast('Link copied. Send it to your friend.'); }, () => shareUrl.select());
 const linkRoom = location.pathname.match(/^\/g\/([a-z0-9]+)$/)?.[1];
 if (linkRoom) connect(() => ({ t: 'join', room: linkRoom, token: seatStore.get('seat:' + linkRoom) }));
 else showLobby();
@@ -982,7 +1083,12 @@ btn('profileClose').onclick = () => btn('profile').close();
 btn('panelToggle').onclick = () => {
   const open = document.body.classList.toggle('drawer-open');
   btn('panelToggle').setAttribute('aria-expanded', open);
-  if (open) btn('unread').hidden = true;
+  if (open) { setUnread(0); document.getElementById('toasts').replaceChildren(); } // the chat itself is visible now
+};
+btn('chatBtn').onclick = () => {
+  if (!document.body.classList.contains('drawer-open')) btn('panelToggle').click();
+  btn('chat').scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  if (!btn('chatForm').hidden) btn('chatInput').focus({ preventScroll: true });
 };
 addEventListener('keydown', e => { if (e.key === 'Escape' && document.body.classList.contains('drawer-open')) btn('panelToggle').click(); });
 btn('signOut').onclick = async () => { await api('/api/logout', {}); location.reload(); };
@@ -997,7 +1103,7 @@ addEventListener('resize', () => {
 });
 fitCamera();
 
-restart(() => { try { game.loadPgn(store.get('pgn') ?? ''); } catch {} }); // resume the autosaved game
+restart(() => { if (!linkRoom) try { game.loadPgn(store.get('pgn') ?? ''); } catch {} }); // resume the autosaved local game (not on a game link)
 renderer.setAnimationLoop(() => { controls.update(); renderer.render(scene, camera); });
 Object.assign(window, { game, restart }); // console debugging: restart(() => game.load(fen))
 </script>
