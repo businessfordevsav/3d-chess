@@ -4,11 +4,11 @@ import assert from 'node:assert/strict';
 import WebSocket from 'ws';
 
 const PORT = 3999, BASE = `http://localhost:${PORT}`;
-const srv = spawn(process.execPath, ['server.js'], { cwd: import.meta.dirname, env: { ...process.env, PORT }, stdio: ['ignore', 'pipe', 'inherit'] });
+const srv = spawn(process.execPath, ['server.js'], { cwd: import.meta.dirname, env: { ...process.env, PORT, DB_FILE: ':memory:' }, stdio: ['ignore', 'pipe', 'inherit'] });
 await new Promise(r => srv.stdout.once('data', r));
 
-function client() {
-  const ws = new WebSocket(`ws://localhost:${PORT}/ws`), inbox = [], waiting = [];
+function client(cookie) {
+  const ws = new WebSocket(`ws://localhost:${PORT}/ws`, cookie ? { headers: { cookie } } : {}), inbox = [], waiting = [];
   ws.on('message', d => {
     const m = JSON.parse(d), i = waiting.findIndex(([t]) => t === m.t);
     i >= 0 ? waiting.splice(i, 1)[0][1](m) : inbox.push(m);
@@ -72,7 +72,7 @@ try {
   for (const x of [a, b, c]) {
     let log;
     do log = (await x.next('chat')).log; while (!log.length); // skip the history sent on joining
-    assert.deepEqual(log, [{ from: 'w', text: 'good luck!' }]);
+    assert.deepEqual(log, [{ from: 'w', name: null, text: 'good luck!' }]); // guests have no name
   }
 
   // a player who drops can come back to the same seat with their token
@@ -143,6 +143,67 @@ try {
   let listed;
   do listed = await lob.next('lobby'); while (!listed.games.some(g => g.id === p1.room));
   assert.deepEqual(listed.seeking, []);
+
+  // accounts: sign up, bad input, duplicates, wrong password, JSON-only posts
+  const post = (path, body, type = 'application/json') => fetch(BASE + path, { method: 'POST', headers: { 'content-type': type }, body: JSON.stringify(body) });
+  const signup = async name => {
+    const r = await post('/api/signup', { name, password: 'correct horse' });
+    assert.equal(r.status, 201);
+    return r.headers.get('set-cookie').split(';')[0];
+  };
+  const alice = await signup('alice'), bob = await signup('bob');
+  assert.equal((await post('/api/signup', { name: 'ALICE', password: 'correct horse' })).status, 409);
+  assert.equal((await post('/api/signup', { name: 'x', password: 'correct horse' })).status, 400);
+  assert.equal((await post('/api/signup', { name: 'carol', password: 'short' })).status, 400);
+  assert.equal((await post('/api/login', { name: 'alice', password: 'wrong password' })).status, 401);
+  assert.equal((await post('/api/login', { name: 'alice', password: 'correct horse' }, 'text/plain')).status, 415);
+  const login = await post('/api/login', { name: 'alice', password: 'correct horse' });
+  assert.equal((await login.json()).user.name, 'alice');
+  const me = await (await fetch(BASE + '/api/me', { headers: { cookie: alice } })).json();
+  assert.deepEqual(me.user, { id: 1, name: 'alice', rating: 1500 });
+
+  // a rated game between two accounts: names in state, Elo after the result, saved to both profiles
+  const ua = client(alice), ub = client(bob);
+  ua.send({ t: 'create', tc: 'none' });
+  const room = (await ua.next('joined')).room;
+  await ua.next('state');
+  ub.send({ t: 'join', room });
+  await ub.next('joined');
+  const st = await ub.next('state');
+  await ua.next('state');
+  assert.deepEqual(Object.values(st.players).map(p => p.name).sort(), ['alice', 'bob']);
+  const [uw, ubk] = st.you === 'w' ? [ub, ua] : [ua, ub];
+  let final;
+  for (const [who, from, to] of [[uw, 'f2', 'f3'], [ubk, 'e7', 'e5'], [uw, 'g2', 'g4'], [ubk, 'd8', 'h4']]) { // fool's mate
+    who.send({ t: 'move', from, to });
+    [final] = [await ua.next('state'), await ub.next('state')];
+  }
+  assert.equal(final.result.reason, 'checkmate');
+  assert.deepEqual(final.result.changes, { w: -10, b: 10 });
+  const loserName = st.you === 'w' ? 'bob' : 'alice';
+  const prof = await (await fetch(BASE + '/api/users/' + loserName)).json();
+  assert.equal(prof.rating, 1490);
+  assert.equal(prof.games.length, 1);
+  assert.equal(prof.games[0].reason, 'checkmate');
+  const saved = await (await fetch(BASE + '/api/games/' + prof.games[0].id)).json();
+  assert.match(saved.pgn, /Qh4#/);
+
+  // a signed-in player gets their seat back without the tab's token, e.g. after closing the tab
+  ua.ws.close();
+  const ua2 = client(alice);
+  ua2.send({ t: 'join', room });
+  await ua2.next('joined');
+  assert.equal((await ua2.next('state')).you, st.you === 'w' ? 'b' : 'w');
+
+  // a WebSocket opened from another site's page doesn't get the user's account
+  const evil = new WebSocket(`ws://localhost:${PORT}/ws`, { headers: { cookie: bob, origin: 'http://evil.example' } }), evilMsgs = [];
+  evil.on('message', d => evilMsgs.push(JSON.parse(d)));
+  await new Promise(r => evil.once('open', r));
+  evil.send(JSON.stringify({ t: 'join', room }));
+  await new Promise(r => setTimeout(r, 300));
+  assert.equal(evilMsgs.find(m => m.t === 'state').you, null); // only a spectator, not bob's seat
+  for (const x of [ua2, ub]) x.ws.close();
+  evil.close();
 
   // only the page and the model folder are served
   assert.equal((await fetch(BASE + '/')).status, 200);

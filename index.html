@@ -6,7 +6,7 @@
 <title>3D Chess</title>
 <style>
   html, body { margin: 0; height: 100%; overflow: hidden; background: #1d1f24; font-family: system-ui, sans-serif; color: #eee; }
-  #hud { position: fixed; top: 12px; left: 12px; right: 12px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  #hud { position: fixed; z-index: 2; top: 12px; left: 12px; right: 12px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
   #status { background: #000a; padding: 8px 12px; border-radius: 8px; }
   button { background: #333c; color: #eee; border: 1px solid #666; border-radius: 8px; padding: 8px 12px; cursor: pointer; font: inherit; }
   button:hover { background: #444; }
@@ -33,7 +33,14 @@
   #moves:empty { display: none; }
   #moves li span { display: inline-block; width: 56px; }
   .clock { background: #000a; padding: 8px 12px; border-radius: 8px; font: 600 20px ui-monospace, monospace; text-align: right; }
-  .clock:empty { display: none; }
+  .clock::before { content: attr(data-who); display: block; font: 13px system-ui, sans-serif; color: #ccc; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #auth form, #profile > div { display: flex; flex-direction: column; gap: 8px; min-width: min(320px, 80vw); text-align: left; }
+  #auth input { padding: 8px; border-radius: 8px; border: 1px solid #666; background: #1d1f24; color: #eee; font: inherit; }
+  #auth .row, #profile .row { display: flex; gap: 8px; justify-content: flex-end; }
+  #authError { color: #f08080; margin: 0; min-height: 1.2em; }
+  #profileGames { list-style: none; margin: 0; padding: 0; max-height: 50vh; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; }
+  #profileGames li { display: flex; gap: 8px; align-items: center; justify-content: space-between; background: #0006; padding: 6px 10px; border-radius: 8px; }
+  .clock:empty:not([data-who]) { display: none; } /* no clock: still show who is playing */
   .clock.running { background: #2f5d3a; }
   .clock.running.low { background: #8a2b2b; }
   #chat { display: flex; flex-direction: column; gap: 6px; background: #000a; border-radius: 8px; padding: 8px; pointer-events: auto; }
@@ -41,7 +48,7 @@
   #chatLog { list-style: none; margin: 0; padding: 0; max-height: 25vh; overflow-y: auto; font-size: 14px; overflow-wrap: anywhere; }
   #chatLog b { font-weight: 600; }
   #chat input { width: 100%; box-sizing: border-box; padding: 6px; border-radius: 6px; border: 1px solid #666; background: #1d1f24; color: #eee; font: inherit; }
-  #lobby { position: fixed; inset: 0; overflow-y: auto; background: #0009; display: flex; justify-content: center; align-items: flex-start; padding: 72px 16px 16px; box-sizing: border-box; }
+  #lobby { position: fixed; z-index: 1; inset: 0; overflow-y: auto; background: #0009; display: flex; justify-content: center; align-items: flex-start; padding: 120px 16px 16px; box-sizing: border-box; }
   #lobby[hidden] { display: none; }
   #lobby > div { width: min(520px, 100%); background: #2a2d33f2; border: 1px solid #555; border-radius: 14px; padding: 20px; }
   #lobby h1 { margin: 0 0 4px; font-size: 28px; }
@@ -65,6 +72,7 @@
 <div id="hud">
   <span id="status"></span>
   <button id="online">Menu</button>
+  <button id="account" hidden>Sign in</button>
   <button id="resign" class="online-only" hidden>Resign</button>
   <button id="drawBtn" class="online-only" hidden>Offer draw</button>
   <button id="declineBtn" class="online-only" hidden>Decline draw</button>
@@ -139,6 +147,29 @@
     <button value="5+3">5+3 Blitz</button><button value="10+0">10+0 Rapid</button>
     <button value="15+10">15+10 Rapid</button><button value="none">No clock</button>
   </form>
+</dialog>
+<dialog id="auth">
+  <form id="authForm">
+    <h2 style="margin: 0">Sign in</h2>
+    <label for="authName" style="background: none; padding: 0">Name</label>
+    <input id="authName" autocomplete="username" required minlength="3" maxlength="20" pattern="[A-Za-z0-9_]+">
+    <label for="authPass" style="background: none; padding: 0">Password</label>
+    <input id="authPass" type="password" autocomplete="current-password" required minlength="8" maxlength="200">
+    <p id="authError" role="alert"></p>
+    <div class="row">
+      <button type="button" id="authCancel">Cancel</button>
+      <button value="signup">Create account</button>
+      <button value="login">Sign in</button>
+    </div>
+  </form>
+</dialog>
+<dialog id="profile">
+  <div>
+    <h2 id="profileName" style="margin: 0"></h2>
+    <p id="profileRating" style="margin: 0"></p>
+    <ul id="profileGames"></ul>
+    <div class="row"><button id="signOut">Sign out</button><button id="profileClose">Close</button></div>
+  </div>
 </dialog>
 <dialog id="over">
   <h2 id="overTitle"></h2>
@@ -441,6 +472,8 @@ function localResult() {
   return null;
 }
 const currentResult = () => online ? online.result : localResult();
+// "alice (1512)" for a signed-in player, otherwise the colour
+const who = side => { const p = online?.players?.[side]; return p ? `${p.name} (${p.rating})` : NAME[side]; };
 const resultTitle = r => !r.winner ? 'Draw' : !online?.color ? `${NAME[r.winner]} wins` : r.winner === online.color ? 'You win!' : 'You lose';
 const resultReason = r => r.winner
   ? `${NAME[r.winner]} won ${{ checkmate: 'by checkmate', resignation: 'by resignation', timeout: 'on time' }[r.reason]}`
@@ -461,7 +494,8 @@ const over = document.getElementById('over'), againBtn = document.getElementById
 let shownOver = null; // which finished game the dialog was last shown for
 function showOver(r) {
   document.getElementById('overTitle').textContent = resultTitle(r);
-  document.getElementById('overReason').textContent = resultReason(r);
+  const change = online?.color && r.changes?.[online.color];
+  document.getElementById('overReason').textContent = resultReason(r) + (change != null ? ` · rating ${change >= 0 ? '+' : ''}${change}` : '');
   againBtn.textContent = !online ? 'New game' : online.rematch.includes(otherColor(online.color)) ? 'Accept rematch' : 'Rematch';
   againBtn.hidden = online && !online.color; // spectators can't rematch
   if (!over.open) ask(over).then(v => {
@@ -618,9 +652,9 @@ async function onServer(m) {
   }
   if (m.t === 'chat') {
     const log = btn('chatLog');
-    for (const { from, text } of m.log) {
+    for (const { from, name, text } of m.log) {
       const li = document.createElement('li'), who = document.createElement('b');
-      who.textContent = NAME[from] + ': ';
+      who.textContent = (name ?? NAME[from]) + ': ';
       li.append(who, text);
       log.append(li);
     }
@@ -639,7 +673,9 @@ async function onServer(m) {
   }
   if (m.t === 'state') {
     Object.assign(online, { color: m.you, seats: m.seats, tc: m.tc, clock: m.clock, clockAt: performance.now(),
-      result: m.result, drawOffer: m.drawOffer, rematch: m.rematch, watchers: m.watchers });
+      result: m.result, drawOffer: m.drawOffer, rematch: m.rematch, watchers: m.watchers, players: m.players });
+    const mine = m.you && m.players[m.you];
+    if (mine && mine.name === me?.name && mine.rating !== me.rating) { me.rating = mine.rating; btn('account').textContent = `${me.name} (${me.rating})`; }
     await idle();
     const remote = new Chess();
     if (m.pgn) remote.loadPgn(m.pgn);
@@ -661,7 +697,8 @@ function showLobbyGames(games) {
   btn('liveSection').hidden = !games.length;
   btn('liveList').replaceChildren(...games.map(g => {
     const li = document.createElement('li'), watch = document.createElement('button');
-    li.textContent = `${g.tc === 'none' ? 'No clock' : g.tc} · move ${Math.ceil(g.moves / 2) || 1}`;
+    const name = c => g.players[c] ? `${g.players[c].name} (${g.players[c].rating})` : 'Guest';
+    li.textContent = `${name('w')} vs ${name('b')} · ${g.tc === 'none' ? 'no clock' : g.tc} · move ${Math.ceil(g.moves / 2) || 1}`;
     watch.textContent = 'Watch';
     watch.onclick = () => location.href = '/g/' + g.id;
     li.append(watch);
@@ -700,9 +737,10 @@ setInterval(() => {
   const me = online?.color ?? 'w'; // spectators see White at the bottom
   for (const [id, side] of [['clockBottom', me], ['clockTop', otherColor(me)]]) {
     const el = btn(id);
+    if (online) el.dataset.who = who(side); else delete el.dataset.who;
     if (!c) { el.textContent = ''; continue; }
     const ms = c[side] - (side === c.running ? performance.now() - online.clockAt : 0);
-    el.textContent = `${NAME[side]} ${fmt(ms)}`;
+    el.textContent = fmt(ms);
     el.classList.toggle('running', side === c.running);
     el.classList.toggle('low', ms < 1e4);
   }
@@ -712,6 +750,54 @@ document.getElementById('copy').onclick = () => navigator.clipboard?.writeText(s
 const linkRoom = location.pathname.match(/^\/g\/([a-z0-9]+)$/)?.[1];
 if (linkRoom) connect(() => ({ t: 'join', room: linkRoom, token: seatStore.get('seat:' + linkRoom) }));
 else showLobby();
+
+// --- accounts: sign in / create account, profile with game history ---
+let me = null;
+const api = (path, body) => fetch(path, body ? { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) } : {})
+  .then(async r => ({ ok: r.ok, ...(await r.json().catch(() => ({ error: 'The server did not answer.' }))) }));
+api('/api/me').then(r => {
+  if (!r.ok) return; // no game server (static hosting): no accounts
+  me = r.user;
+  btn('account').hidden = false;
+  btn('account').textContent = me ? `${me.name} (${me.rating})` : 'Sign in';
+}, () => {});
+btn('account').onclick = () => me ? openProfile(me.name) : (btn('authError').textContent = '', btn('auth').showModal());
+btn('authCancel').onclick = () => btn('auth').close();
+btn('authForm').onsubmit = async e => {
+  e.preventDefault();
+  const r = await api(e.submitter?.value === 'signup' ? '/api/signup' : '/api/login', { name: btn('authName').value, password: btn('authPass').value });
+  if (!r.ok) return btn('authError').textContent = r.error;
+  location.reload(); // reconnect so the game server knows who we are
+};
+async function openProfile(name) {
+  const p = await api('/api/users/' + encodeURIComponent(name));
+  if (!p.ok) return;
+  btn('profileName').textContent = p.name;
+  btn('profileRating').textContent = `Rating ${p.rating}`;
+  btn('signOut').hidden = name !== me?.name;
+  btn('profileGames').replaceChildren(...(p.games.length ? p.games.map(g => {
+    const mine = g.white === p.name ? 'w' : 'b', opp = (mine === 'w' ? g.black : g.white) ?? 'Guest';
+    const outcome = !g.winner ? 'Draw' : g.winner === mine ? 'Win' : 'Loss';
+    const change = g.rated ? ` · ${g[mine === 'w' ? 'white_change' : 'black_change'] >= 0 ? '+' : ''}${g[mine === 'w' ? 'white_change' : 'black_change']}` : '';
+    const li = document.createElement('li'), info = document.createElement('span'), replay = document.createElement('button');
+    info.textContent = `${outcome} vs ${opp} · ${g.reason}${change} · ${new Date(g.ended).toLocaleDateString()}`;
+    replay.textContent = 'Replay';
+    replay.disabled = !!online;
+    replay.onclick = async () => {
+      const { pgn } = await api('/api/games/' + g.id);
+      btn('profile').close();
+      btn('lobby').hidden = true;
+      modeEl.value = '2p';
+      shownOver = null;
+      restart(() => game.loadPgn(pgn));
+    };
+    li.append(info, replay);
+    return li;
+  }) : [Object.assign(document.createElement('li'), { textContent: 'No games yet.' })]));
+  btn('profile').showModal();
+}
+btn('profileClose').onclick = () => btn('profile').close();
+btn('signOut').onclick = async () => { await api('/api/logout', {}); location.reload(); };
 
 addEventListener('resize', () => {
   camera.aspect = innerWidth / innerHeight;
