@@ -18,11 +18,25 @@
   #captured div:empty { display: none; }
   dialog { background: #2a2d33; color: #eee; border: 1px solid #666; border-radius: 12px; text-align: center; }
   dialog::backdrop { background: #0008; }
-  dialog button { font-size: 36px; width: 64px; height: 64px; margin: 4px; }
+  #promo button { font-size: 36px; width: 64px; height: 64px; margin: 4px; }
+  #tcPick form { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  #over h2 { margin: 4px 0; }
+  #over form { display: flex; gap: 8px; justify-content: center; margin-top: 12px; }
   #share { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); width: min(420px, calc(100vw - 32px)); box-sizing: border-box;
            background: #2a2d33ee; border: 1px solid #666; border-radius: 12px; padding: 16px; text-align: center; }
   #share input { width: 100%; box-sizing: border-box; margin: 8px 0; padding: 8px; border-radius: 8px; border: 1px solid #666; background: #1d1f24; color: #eee; font: inherit; }
-  .online .local-only { display: none; }
+  .online .local-only, .online-only { display: none; }
+  .online .online-only:not([hidden]) { display: inline-block; }
+  button:disabled { opacity: 0.5; cursor: default; }
+  #panel { position: fixed; right: 12px; top: 110px; bottom: 12px; width: 170px; display: flex; flex-direction: column; gap: 8px; pointer-events: none; }
+  #moves { flex: 0 1 auto; overflow-y: auto; margin: 0; padding: 8px 8px 8px 36px; background: #000a; border-radius: 8px; pointer-events: auto; }
+  #moves:empty { display: none; }
+  #moves li span { display: inline-block; width: 56px; }
+  .clock { background: #000a; padding: 8px 12px; border-radius: 8px; font: 600 20px ui-monospace, monospace; text-align: right; }
+  .clock:empty { display: none; }
+  .clock.running { background: #2f5d3a; }
+  .clock.running.low { background: #8a2b2b; }
+  @media (max-width: 640px) { #moves { display: none; } #panel { top: auto; width: 140px; } }
 </style>
 <script type="importmap">
 { "imports": {
@@ -36,6 +50,10 @@
 <div id="hud">
   <span id="status"></span>
   <button id="online">Play a friend online</button>
+  <button id="resign" class="online-only" hidden>Resign</button>
+  <button id="drawBtn" class="online-only" hidden>Offer draw</button>
+  <button id="declineBtn" class="online-only" hidden>Decline draw</button>
+  <button id="rematchBtn" class="online-only" hidden>Rematch</button>
   <button id="undo" class="local-only">Undo</button>
   <button id="reset" class="local-only">New game</button>
   <button id="flip">Flip board</button>
@@ -68,6 +86,24 @@
   <input id="shareUrl" readonly aria-label="Game link">
   <button id="copy">Copy link</button>
 </div>
+<div id="panel">
+  <div id="clockTop" class="clock"></div>
+  <ol id="moves" aria-label="Moves"></ol>
+  <div id="clockBottom" class="clock"></div>
+</div>
+<dialog id="tcPick">
+  <p>Choose a time control</p>
+  <form method="dialog">
+    <button value="1+0">1+0 Bullet</button><button value="3+2">3+2 Blitz</button>
+    <button value="5+3">5+3 Blitz</button><button value="10+0">10+0 Rapid</button>
+    <button value="15+10">15+10 Rapid</button><button value="none">No clock</button>
+  </form>
+</dialog>
+<dialog id="over">
+  <h2 id="overTitle"></h2>
+  <p id="overReason"></p>
+  <form method="dialog"><button id="again" value="again"></button><button value="">View board</button></form>
+</dialog>
 <div id="captured"><div id="capW"></div><div id="capB"></div></div>
 <dialog id="promo">
   <p>Promote to</p>
@@ -322,11 +358,13 @@ function showCaptured() {
 
 // --- promotion picker ---
 const promo = document.getElementById('promo');
-function pickPromotion() {
-  promo.returnValue = '';
-  promo.showModal();
-  return new Promise(res => promo.addEventListener('close', () => res(promo.returnValue), { once: true })); // '' = cancelled (Esc)
+// open a <dialog> and resolve with the button value it closed with ('' = cancelled with Esc)
+function ask(dlg) {
+  dlg.returnValue = '';
+  dlg.showModal();
+  return new Promise(res => dlg.addEventListener('close', () => res(dlg.returnValue), { once: true }));
 }
+const pickPromotion = () => ask(promo);
 
 // --- selection + highlights ---
 let selected = null, targets = [], busy = false;
@@ -350,22 +388,76 @@ function paint() {
   for (const m of targets) tint(m.to, m.captured ? 0xd9734a : 0x7cc47f);
 }
 
+// --- results, move list, game-over screen ---
+const NAME = { w: 'White', b: 'Black' }, otherColor = c => c === 'w' ? 'b' : 'w';
+function localResult() {
+  const g = game;
+  if (g.isCheckmate()) return { winner: otherColor(g.turn()), reason: 'checkmate' };
+  if (g.isStalemate()) return { winner: null, reason: 'stalemate' };
+  if (g.isInsufficientMaterial()) return { winner: null, reason: 'insufficient material' };
+  if (g.isThreefoldRepetition()) return { winner: null, reason: 'threefold repetition' };
+  if (g.isDraw()) return { winner: null, reason: '50-move rule' };
+  return null;
+}
+const currentResult = () => online ? online.result : localResult();
+const resultTitle = r => !r.winner ? 'Draw' : !online ? `${NAME[r.winner]} wins` : r.winner === online.color ? 'You win!' : 'You lose';
+const resultReason = r => r.winner
+  ? `${NAME[r.winner]} won ${{ checkmate: 'by checkmate', resignation: 'by resignation', timeout: 'on time' }[r.reason]}`
+  : `Draw by ${r.reason}`;
+
+const movesEl = document.getElementById('moves');
+function showMoves() {
+  const h = game.history(), span = t => Object.assign(document.createElement('span'), { textContent: t ?? '' });
+  movesEl.replaceChildren(...Array.from({ length: Math.ceil(h.length / 2) }, (_, i) => {
+    const li = document.createElement('li');
+    li.append(span(h[2 * i]), span(h[2 * i + 1]));
+    return li;
+  }));
+  movesEl.scrollTop = movesEl.scrollHeight;
+}
+
+const over = document.getElementById('over'), againBtn = document.getElementById('again');
+let shownOver = null; // which finished game the dialog was last shown for
+function showOver(r) {
+  document.getElementById('overTitle').textContent = resultTitle(r);
+  document.getElementById('overReason').textContent = resultReason(r);
+  againBtn.textContent = !online ? 'New game' : online.rematch.includes(otherColor(online.color)) ? 'Accept rematch' : 'Rematch';
+  if (!over.open) ask(over).then(v => {
+    if (v !== 'again') return;
+    online ? send({ t: 'rematch' }) : restart(() => game.reset());
+  });
+}
+
+const btn = id => document.getElementById(id);
 function update() {
   paint();
   showCaptured();
+  showMoves();
   if (!online) store.set('pgn', game.pgn()); // autosave, restored on reload
-  const side = game.turn() === 'w' ? 'White' : 'Black';
-  let text =
-    game.isCheckmate() ? `Checkmate: ${side === 'White' ? 'Black' : 'White'} wins` :
-    game.isDraw() ? 'Draw' :
-    `${side} to move${game.inCheck() ? ' (check!)' : ''}`;
+  const res = currentResult();
+  let text = res ? (res.winner ? `${resultTitle(res)} · ${resultReason(res)}` : resultReason(res))
+    : `${NAME[game.turn()]} to move${game.inCheck() ? ' (check!)' : ''}`;
   if (online) {
-    const opp = online.seats[online.color === 'w' ? 'b' : 'w'];
-    text = !opp ? 'Waiting for your friend to join…'
-      : `You are ${online.color === 'w' ? 'White' : 'Black'} · ${text}${opp === 'away' ? ' · opponent disconnected' : ''}`;
-    shareEl.hidden = !!opp;
+    const me = online.color, opp = otherColor(me), oppSeat = online.seats[opp];
+    const playing = !res && online.seats.w && online.seats.b;
+    text = !oppSeat ? 'Waiting for your friend to join…'
+      : `You are ${NAME[me]} · ${text}${oppSeat === 'away' ? ' · opponent disconnected' : ''}` +
+        (playing && online.drawOffer === opp ? ' · opponent offers a draw' : '') +
+        (res && online.rematch.includes(opp) && !online.rematch.includes(me) ? ' · opponent wants a rematch' : '');
+    shareEl.hidden = !!oppSeat;
+    btn('resign').hidden = btn('drawBtn').hidden = !playing;
+    btn('drawBtn').textContent = online.drawOffer === opp ? 'Accept draw' : online.drawOffer === me ? 'Draw offered' : 'Offer draw';
+    btn('drawBtn').disabled = online.drawOffer === me;
+    btn('declineBtn').hidden = !(playing && online.drawOffer === opp);
+    btn('rematchBtn').hidden = !res;
+    btn('rematchBtn').textContent = online.rematch.includes(me) ? 'Rematch requested' : online.rematch.includes(opp) ? 'Accept rematch' : 'Rematch';
+    btn('rematchBtn').disabled = online.rematch.includes(me);
   }
   statusEl.textContent = text;
+  const key = res && game.pgn() + res.reason;
+  if (key && key !== shownOver) { shownOver = key; setTimeout(() => showOver(res), 700); } // after the last move lands
+  if (!res && over.open) over.close(); // a rematch started
+  if (res && over.open) showOver(res); // refresh the button label
 }
 
 async function playMove(mv) {
@@ -381,7 +473,7 @@ async function playMove(mv) {
 }
 
 async function onSquare(sq) {
-  if (!realSet || busy || game.isGameOver() || game.turn() === cpuColor()) return;
+  if (!realSet || busy || game.isGameOver() || online?.result || game.turn() === cpuColor()) return;
   if (online && (game.turn() !== online.color || !online.seats.w || !online.seats.b)) return;
   const move = targets.find(m => m.to === sq), prev = selected;
   selected = null; targets = [];
@@ -474,14 +566,15 @@ async function onServer(m) {
   if (m.t === 'error') { statusEl.textContent = m.msg; return; }
   if (m.t === 'joined') {
     seatStore.set('seat:' + m.room, m.token); // lets a refresh take the same seat back
-    online = { room: m.room, color: m.color, seats: {} };
+    online = { room: m.room, color: 'w', seats: {}, rematch: [] }; // the state message that follows fills the rest
     history.replaceState(null, '', '/g/' + m.room);
     shareUrl.value = location.href;
     document.body.classList.add('online');
     document.getElementById('online').textContent = 'Leave online game';
   }
   if (m.t === 'state') {
-    online.seats = m.seats;
+    Object.assign(online, { color: m.you, seats: m.seats, tc: m.tc, clock: m.clock, clockAt: performance.now(),
+      result: m.result, drawOffer: m.drawOffer, rematch: m.rematch });
     await idle();
     const remote = new Chess();
     if (m.pgn) remote.loadPgn(m.pgn);
@@ -493,7 +586,33 @@ async function onServer(m) {
   }
 }
 
-document.getElementById('online').onclick = () => online ? location.href = '/' : connect(() => ({ t: 'create' }));
+document.getElementById('online').onclick = async () => {
+  if (online) return location.href = '/';
+  const tc = await ask(document.getElementById('tcPick'));
+  if (tc) connect(() => ({ t: 'create', tc }));
+};
+btn('resign').onclick = () => confirm('Resign this game?') && send({ t: 'resign' });
+btn('drawBtn').onclick = () => send({ t: 'draw' });
+btn('declineBtn').onclick = () => send({ t: 'decline' });
+btn('rematchBtn').onclick = () => send({ t: 'rematch' });
+
+// clocks: the server sends ms left; the running side counts down locally from when the message arrived
+function fmt(ms) {
+  if (ms < 1e4) return '0:0' + (Math.max(0, ms) / 1000).toFixed(1);
+  const t = Math.ceil(ms / 1000);
+  return `${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')}`;
+}
+setInterval(() => {
+  const c = online?.clock;
+  for (const [id, side] of [['clockBottom', online?.color], ['clockTop', online && otherColor(online.color)]]) {
+    const el = btn(id);
+    if (!c) { el.textContent = ''; continue; }
+    const ms = c[side] - (side === c.running ? performance.now() - online.clockAt : 0);
+    el.textContent = `${NAME[side]} ${fmt(ms)}`;
+    el.classList.toggle('running', side === c.running);
+    el.classList.toggle('low', ms < 1e4);
+  }
+}, 100);
 document.getElementById('copy').onclick = () => navigator.clipboard?.writeText(shareUrl.value).then(
   () => document.getElementById('copy').textContent = 'Copied!', () => shareUrl.select());
 const linkRoom = location.pathname.match(/^\/g\/([a-z0-9]+)$/)?.[1];
