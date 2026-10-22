@@ -16,7 +16,7 @@ Run it from this folder (`--directory .` serves only this folder, `--bind 127.0.
 - Moves animate, and there is a promotion picker, an undo button, and a list of captured pieces with the material score.
 - Two players on one screen, with auto-flip so the board turns to whoever moves next.
 - A computer opponent at Easy, Medium, Hard or Max; you can play White or Black.
-- Sounds made with Web Audio, so there are no audio files. The default look is a realistic 3D-model set (pieces and marble board); there are also four colour boards and three code-built piece sets: Classic, Neon and Bauhaus. All of these settings are remembered.
+- Realistic 3D-model pieces, a real marble board plus four colour boards, and sounds made with Web Audio, so there are no audio files. Settings are remembered.
 - Save and load games as PGN files. The current game is also saved automatically and comes back after a reload.
 
 ## Debugging

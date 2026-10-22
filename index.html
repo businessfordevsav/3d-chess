@@ -53,12 +53,6 @@
     <option value="green">Tournament</option>
     <option value="night">Night</option>
   </select>
-  <select id="pieceSet" aria-label="Piece set">
-    <option value="real">Realistic pieces</option>
-    <option value="classic">Classic pieces</option>
-    <option value="neon">Neon pieces</option>
-    <option value="bauhaus">Bauhaus pieces</option>
-  </select>
   <label><input type="checkbox" id="sound" checked> Sound</label>
   <button id="save">Save PGN</button>
   <button id="load">Load PGN</button>
@@ -180,128 +174,9 @@ function playSound(m) {
   else tone(320, 0.08, 'triangle', 0.35);
 }
 
-// --- piece sets ---
-const SETS = {
-  classic: { // lacquered boxwood and ebony
-    w: new THREE.MeshPhysicalMaterial({ color: 0xe6d6b8, roughness: 0.35, clearcoat: 1, clearcoatRoughness: 0.15, envMapIntensity: 0.5 }),
-    b: new THREE.MeshPhysicalMaterial({ color: 0x1c1712, roughness: 0.3, clearcoat: 1, clearcoatRoughness: 0.15, envMapIntensity: 0.8 }),
-  },
-  neon: { // faceted dark metal with glowing edges
-    w: new THREE.MeshStandardMaterial({ color: 0x14202c, metalness: 0.9, roughness: 0.2, emissive: 0x0c3a4a, flatShading: true }),
-    b: new THREE.MeshStandardMaterial({ color: 0x24121f, metalness: 0.9, roughness: 0.2, emissive: 0x3a0c2e, flatShading: true }),
-    edges: { w: new THREE.LineBasicMaterial({ color: 0x40e0ff }), b: new THREE.LineBasicMaterial({ color: 0xff40c0 }) },
-  },
-  bauhaus: { // matte natural and red-stained wood
-    w: new THREE.MeshStandardMaterial({ color: 0xeadcc0, roughness: 0.8 }),
-    b: new THREE.MeshStandardMaterial({ color: 0xc2412d, roughness: 0.8 }),
-  },
-};
-
-// lathe profiles as [radius, height], bottom to top; one square = 1 unit
-const BASE = [[0, 0], [0.35, 0], [0.36, 0.03], [0.35, 0.06], [0.3, 0.08], [0.3, 0.1], [0.26, 0.12]];
-const ball = (y, r) => Array.from({ length: 10 }, (_, i) => {
-  const a = -Math.PI / 4 + i * (3 * Math.PI / 4) / 9; // -45deg up to the pole
-  return [r * Math.cos(a), y + r * Math.sin(a)];
-});
-const PROFILES = {
-  p: [...BASE, [0.18, 0.17], [0.12, 0.26], [0.095, 0.33], [0.15, 0.35], [0.155, 0.37], [0.09, 0.385], ...ball(0.47, 0.105)],
-  r: [...BASE, [0.22, 0.18], [0.19, 0.46], [0.235, 0.49], [0.235, 0.51], [0.2, 0.53], [0.24, 0.56], [0.25, 0.64], [0.17, 0.64], [0.17, 0.6], [0, 0.6]],
-  n: [...BASE, [0.23, 0.16], [0.23, 0.19], [0, 0.19]],
-  b: [...BASE, [0.17, 0.18], [0.115, 0.3], [0.085, 0.46], [0.08, 0.52], [0.16, 0.54], [0.165, 0.56], [0.1, 0.58], [0.12, 0.61],
-      [0.145, 0.66], [0.145, 0.72], [0.12, 0.78], [0.08, 0.83], [0.04, 0.86], ...ball(0.9, 0.045)],
-  q: [...BASE, [0.19, 0.2], [0.13, 0.35], [0.095, 0.55], [0.09, 0.63], [0.17, 0.65], [0.175, 0.67], [0.11, 0.69], [0.12, 0.72],
-      [0.15, 0.8], [0.19, 0.89], [0.16, 0.9], [0.13, 0.92], [0.08, 0.95], ...ball(1.0, 0.055)],
-  k: [...BASE, [0.19, 0.2], [0.13, 0.36], [0.1, 0.58], [0.095, 0.66], [0.175, 0.68], [0.18, 0.7], [0.115, 0.72], [0.125, 0.75],
-      [0.16, 0.84], [0.185, 0.92], [0.15, 0.93], [0.13, 0.96], [0.08, 0.99], [0, 1.0]],
-};
-
-// knight head: side silhouette (forward = +x, up = +y), extruded and bevelled
-function knightHead(curveSegments, bevelSegments) {
-  const s = new THREE.Shape();
-  s.moveTo(-0.2, 0);
-  s.lineTo(0.2, 0);
-  s.quadraticCurveTo(0.2, 0.12, 0.09, 0.24);   // chest up to throat
-  s.quadraticCurveTo(0.15, 0.3, 0.26, 0.31);   // under the jaw
-  s.quadraticCurveTo(0.33, 0.33, 0.31, 0.4);   // muzzle
-  s.quadraticCurveTo(0.24, 0.5, 0.12, 0.58);   // nose bridge to forehead
-  s.lineTo(0.08, 0.73);                        // ear
-  s.lineTo(0.0, 0.62);
-  s.quadraticCurveTo(-0.13, 0.6, -0.2, 0.42);  // back of the head
-  s.quadraticCurveTo(-0.3, 0.2, -0.2, 0);      // mane down the neck
-  const geo = new THREE.ExtrudeGeometry(s, { depth: 0.12, curveSegments, bevelThickness: 0.05, bevelSize: 0.035, bevelSegments });
-  geo.translate(0, 0, -0.06);
-  return geo;
-}
-
-// rook crown: 6 ring segments with gaps, extruded upward
-function battlements(curveSegments) {
-  const shapes = Array.from({ length: 6 }, (_, i) => {
-    const a0 = i * Math.PI / 3, a1 = a0 + Math.PI / 5, sh = new THREE.Shape();
-    sh.absarc(0, 0, 0.25, a0, a1, false);
-    sh.absarc(0, 0, 0.17, a1, a0, true);
-    return sh;
-  });
-  const geo = new THREE.ExtrudeGeometry(shapes, { depth: 0.09, curveSegments, bevelThickness: 0.01, bevelSize: 0.008, bevelSegments: 2 });
-  geo.rotateX(-Math.PI / 2);
-  return geo;
-}
-
-// Staunton shapes; lowPoly gives the faceted neon look
-function staunton(type, add, lowPoly) {
-  add(new THREE.LatheGeometry(PROFILES[type].map(([r, y]) => new THREE.Vector2(r, y)), lowPoly ? 6 : 48));
-  if (type === 'r') add(battlements(lowPoly ? 2 : 8), 0, 0.64);
-  if (type === 'q') for (let i = 0; i < 8; i++) { // crown points
-    const a = i * Math.PI / 4;
-    add(lowPoly ? new THREE.OctahedronGeometry(0.035) : new THREE.SphereGeometry(0.028, 12, 8), Math.cos(a) * 0.18, 0.905, Math.sin(a) * 0.18);
-  }
-  if (type === 'k') { add(new THREE.BoxGeometry(0.05, 0.2, 0.05), 0, 1.09); add(new THREE.BoxGeometry(0.15, 0.05, 0.05), 0, 1.12); }
-  if (type === 'n') add(lowPoly ? knightHead(3, 1) : knightHead(32, 6), 0, 0.17).rotation.y = Math.PI / 2; // +x turned to face -z (the opponent, for white)
-}
-
-// Bauhaus shapes, after Josef Hartwig's 1924 set; forward is -z
-function bauhaus(type, add) {
-  const box = (w, h, d, y, z = 0) => add(new THREE.BoxGeometry(w, h, d), 0, y, z);
-  switch (type) {
-    case 'p': box(0.32, 0.32, 0.32, 0.16); break;
-    case 'r': box(0.5, 0.5, 0.5, 0.25); break;
-    case 'n': box(0.46, 0.3, 0.46, 0.15); box(0.46, 0.3, 0.23, 0.45, -0.115); break; // L-shape
-    case 'b':
-      box(0.46, 0.12, 0.46, 0.06);
-      for (const s of [1, -1]) add(new THREE.BoxGeometry(0.14, 0.72, 0.14), 0, 0.4).rotation.z = s * Math.PI / 4; // X
-      break;
-    case 'q': add(new THREE.CylinderGeometry(0.22, 0.22, 0.5, 48), 0, 0.25); add(new THREE.SphereGeometry(0.2, 48, 24), 0, 0.7); break;
-    case 'k': box(0.46, 0.46, 0.46, 0.23); add(new THREE.BoxGeometry(0.3, 0.3, 0.3), 0, 0.67).rotation.z = Math.PI / 4; break; // cube on a diamond
-  }
-}
-
-function buildPiece(type, color, set) {
-  const g = new THREE.Group(), S = SETS[set];
-  const add = (geo, x = 0, y = 0, z = 0) => {
-    const m = new THREE.Mesh(geo, S[color]);
-    m.position.set(x, y, z);
-    m.castShadow = m.receiveShadow = true;
-    if (S.edges) {
-      const l = new THREE.LineSegments(new THREE.EdgesGeometry(geo, 20), S.edges[color]);
-      l.raycast = () => {}; // lines would otherwise catch clicks from far away
-      m.add(l);
-    }
-    g.add(m);
-    return m;
-  };
-  set === 'bauhaus' ? bauhaus(type, add) : staunton(type, add, set === 'neon');
-  if (color === 'b') g.rotation.y = Math.PI;
-  return g;
-}
-
-const setEl = document.getElementById('pieceSet');
-restoreSelect(setEl, 'pieces');
-const templates = {};
-let realSet = null; // pieces from the 3D model, set once it loads
-function makePiece(type, color) {
-  if (setEl.value === 'real' && realSet) return realSet[type + color].clone();
-  const set = setEl.value === 'real' ? 'classic' : setEl.value; // classic stands in while the model loads
-  return (templates[set + type + color] ??= buildPiece(type, color, set)).clone(); // clones share geometry
-}
+// --- pieces ---
+let realSet = null; // one template per piece, set once the model loads
+const makePiece = (type, color) => realSet[type + color].clone(); // clones share geometry
 
 // "Chess Set" by Riley Queen, Poly Haven, CC0. Model units are metres; one square is 0.057888 m.
 new GLTFLoader().load('models/chess_set/chess_set_1k.gltf', gltf => {
@@ -334,6 +209,7 @@ scene.add(pieceGroup);
 // ponytail: animates the old meshes, then rebuilds every piece; fine at 32 pieces
 function syncPieces() {
   pieceGroup.clear();
+  if (!realSet) return; // model still loading; its onload calls us again
   for (const p of game.board().flat()) if (p) {
     const g = makePiece(p.type, p.color);
     const [x, z] = toPos(p.square);
@@ -364,7 +240,7 @@ function animateMove(m) {
   const victim = capSq && pieceAt(capSq);
   const runs = slides.map(([a, b]) => ({ g: pieceAt(a), a: toPos(a), b: toPos(b) }));
   return tween(400, (e, t) => {
-    for (const { g, a, b } of runs) g.position.set(a[0] + (b[0] - a[0]) * e, Math.sin(t * Math.PI) * 0.6, a[1] + (b[1] - a[1]) * e);
+    for (const { g, a, b } of runs) g?.position.set(a[0] + (b[0] - a[0]) * e, Math.sin(t * Math.PI) * 0.6, a[1] + (b[1] - a[1]) * e);
     victim?.scale.setScalar(Math.max(0.001, 1 - t));
   });
 }
@@ -487,7 +363,7 @@ async function playMove(mv) {
 }
 
 async function onSquare(sq) {
-  if (busy || game.isGameOver() || game.turn() === cpuColor()) return;
+  if (!realSet || busy || game.isGameOver() || game.turn() === cpuColor()) return;
   const move = targets.find(m => m.to === sq), prev = selected;
   selected = null; targets = [];
   if (move) {
@@ -536,7 +412,6 @@ document.getElementById('reset').onclick = () => restart(() => game.reset());
 document.getElementById('flip').onclick = () => restart(flipCamera);
 autoflip.onchange = modeEl.onchange = sideEl.onchange = () => restart(() => {});
 themeEl.onchange = () => { store.set('theme', themeEl.value); applyTheme(themeEl.value); paint(); };
-setEl.onchange = () => { store.set('pieces', setEl.value); syncPieces(); };
 soundEl.onchange = () => store.set('sound', soundEl.checked ? 'on' : 'off');
 
 // --- PGN save / load ---
