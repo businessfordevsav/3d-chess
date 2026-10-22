@@ -277,6 +277,7 @@ try {
   assert.equal((await fetch(BASE + '/')).status, 200);
   assert.equal((await fetch(BASE + '/g/' + ja.room)).status, 200);
   assert.equal((await fetch(BASE + '/models/chess_set/chess_set_1k.gltf')).status, 200);
+  for (const p of ['/icon.svg', '/favicon.ico']) assert.equal((await fetch(BASE + p)).headers.get('content-type'), 'image/svg+xml', p);
   for (const p of ['/server.js', '/package.json', '/models/../server.js', '/models/%2e%2e/server.js']) assert.equal((await fetch(BASE + p)).status, 404, p);
 
   console.log('rooms: all checks passed');

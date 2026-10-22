@@ -11,7 +11,7 @@ import { Chess } from 'chess.js';
 import { glicko2 } from './glicko2.js';
 
 const ROOT = import.meta.dirname, PORT = process.env.PORT || 3000;
-const TYPES = { '.html': 'text/html; charset=utf-8', '.gltf': 'model/gltf+json', '.bin': 'application/octet-stream', '.jpg': 'image/jpeg' };
+const TYPES = { '.html': 'text/html; charset=utf-8', '.gltf': 'model/gltf+json', '.bin': 'application/octet-stream', '.jpg': 'image/jpeg', '.svg': 'image/svg+xml' };
 
 // --- database: accounts, sessions, finished games ---
 const DB_FILE = process.env.DB_FILE || join(ROOT, 'data', 'chess.db');
@@ -131,8 +131,9 @@ const server = createServer(async (req, res) => {
   let path = '';
   try { path = normalize(decodeURIComponent(new URL(req.url, 'http://x').pathname)); } catch {}
   if (path.startsWith('/api/')) return api(req, res, path).catch(() => json(res, 500, { error: 'Server error.' }));
-  // only the page and the model folder are public
-  const file = path === '/' || /^\/g\/[a-z0-9]+$/.test(path) ? 'index.html' : path.startsWith('/models/') ? path.slice(1) : null;
+  // only the page, its icon and the model folder are public (browsers that still ask for /favicon.ico get the same icon)
+  const file = path === '/' || /^\/g\/[a-z0-9]+$/.test(path) ? 'index.html' : path === '/icon.svg' || path === '/favicon.ico' ? 'icon.svg'
+    : path.startsWith('/models/') ? path.slice(1) : null;
   try {
     if (!file) throw 0;
     const body = await readFile(join(ROOT, file));

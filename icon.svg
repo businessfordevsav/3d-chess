@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <circle cx="32" cy="32" r="31" fill="#16171b" stroke="#d4af6a" stroke-width="2"/>
+  <text x="32" y="48" text-anchor="middle" font-size="46" fill="#d4af6a"
+        font-family="'Apple Symbols','Segoe UI Symbol','Noto Sans Symbols 2','DejaVu Sans',serif">&#x265E;&#xFE0E;</text>
+</svg>
