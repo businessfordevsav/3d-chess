@@ -67,6 +67,7 @@
 <script type="module">
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { Chess } from 'chess.js';
 
 const game = new Chess();
@@ -80,12 +81,16 @@ const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setPixelRatio(devicePixelRatio);
 renderer.setSize(innerWidth, innerHeight);
 renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 0.85;
 document.body.appendChild(renderer.domElement);
 
 const controls = new OrbitControls(camera, renderer.domElement);
 Object.assign(controls, { enableDamping: true, enablePan: false, minDistance: 6, maxDistance: 25, maxPolarAngle: Math.PI / 2.2 });
 
-scene.add(new THREE.HemisphereLight(0xffffff, 0x444444, 1.2));
+scene.environment = new THREE.PMREMGenerator(renderer).fromScene(new RoomEnvironment(), 0.04).texture; // soft reflections on the lacquer
+scene.add(new THREE.HemisphereLight(0xffffff, 0x444444, 0.4));
 const sun = new THREE.DirectionalLight(0xffffff, 2);
 sun.position.set(5, 12, 6);
 sun.castShadow = true;
@@ -161,60 +166,93 @@ function playSound(m) {
   else tone(320, 0.08, 'triangle', 0.35);
 }
 
-// --- pieces (built from primitives) ---
+// --- pieces: Staunton-style silhouettes ---
 const mats = {
-  w: new THREE.MeshStandardMaterial({ color: 0xf2efe6, roughness: 0.4 }),
-  b: new THREE.MeshStandardMaterial({ color: 0x2a2a2e, roughness: 0.4 }),
+  w: new THREE.MeshPhysicalMaterial({ color: 0xe6d6b8, roughness: 0.35, clearcoat: 1, clearcoatRoughness: 0.15, envMapIntensity: 0.5 }), // lacquered boxwood
+  b: new THREE.MeshPhysicalMaterial({ color: 0x1c1712, roughness: 0.3, clearcoat: 1, clearcoatRoughness: 0.15, envMapIntensity: 0.8 }), // ebony
 };
-const HEIGHT = { p: 0.35, r: 0.5, n: 0.45, b: 0.6, q: 0.75, k: 0.85 };
 
-function part(geo, y, mat) {
-  const m = new THREE.Mesh(geo, mat);
-  m.position.y = y;
-  m.castShadow = true;
-  return m;
+// lathe profiles as [radius, height], bottom to top; one square = 1 unit
+const BASE = [[0, 0], [0.35, 0], [0.36, 0.03], [0.35, 0.06], [0.3, 0.08], [0.3, 0.1], [0.26, 0.12]];
+const ball = (y, r) => Array.from({ length: 10 }, (_, i) => {
+  const a = -Math.PI / 4 + i * (3 * Math.PI / 4) / 9; // -45deg up to the pole
+  return [r * Math.cos(a), y + r * Math.sin(a)];
+});
+const PROFILES = {
+  p: [...BASE, [0.18, 0.17], [0.12, 0.26], [0.095, 0.33], [0.15, 0.35], [0.155, 0.37], [0.09, 0.385], ...ball(0.47, 0.105)],
+  r: [...BASE, [0.22, 0.18], [0.19, 0.46], [0.235, 0.49], [0.235, 0.51], [0.2, 0.53], [0.24, 0.56], [0.25, 0.64], [0.17, 0.64], [0.17, 0.6], [0, 0.6]],
+  n: [...BASE, [0.23, 0.16], [0.23, 0.19], [0, 0.19]],
+  b: [...BASE, [0.17, 0.18], [0.115, 0.3], [0.085, 0.46], [0.08, 0.52], [0.16, 0.54], [0.165, 0.56], [0.1, 0.58], [0.12, 0.61],
+      [0.145, 0.66], [0.145, 0.72], [0.12, 0.78], [0.08, 0.83], [0.04, 0.86], ...ball(0.9, 0.045)],
+  q: [...BASE, [0.19, 0.2], [0.13, 0.35], [0.095, 0.55], [0.09, 0.63], [0.17, 0.65], [0.175, 0.67], [0.11, 0.69], [0.12, 0.72],
+      [0.15, 0.8], [0.19, 0.89], [0.16, 0.9], [0.13, 0.92], [0.08, 0.95], ...ball(1.0, 0.055)],
+  k: [...BASE, [0.19, 0.2], [0.13, 0.36], [0.1, 0.58], [0.095, 0.66], [0.175, 0.68], [0.18, 0.7], [0.115, 0.72], [0.125, 0.75],
+      [0.16, 0.84], [0.185, 0.92], [0.15, 0.93], [0.13, 0.96], [0.08, 0.99], [0, 1.0]],
+};
+
+// knight head: side silhouette (forward = +x, up = +y), extruded and bevelled
+function knightHead() {
+  const s = new THREE.Shape();
+  s.moveTo(-0.2, 0);
+  s.lineTo(0.2, 0);
+  s.quadraticCurveTo(0.2, 0.12, 0.09, 0.24);   // chest up to throat
+  s.quadraticCurveTo(0.15, 0.3, 0.26, 0.31);   // under the jaw
+  s.quadraticCurveTo(0.33, 0.33, 0.31, 0.4);   // muzzle
+  s.quadraticCurveTo(0.24, 0.5, 0.12, 0.58);   // nose bridge to forehead
+  s.lineTo(0.08, 0.73);                        // ear
+  s.lineTo(0.0, 0.62);
+  s.quadraticCurveTo(-0.13, 0.6, -0.2, 0.42);  // back of the head
+  s.quadraticCurveTo(-0.3, 0.2, -0.2, 0);      // mane down the neck
+  const geo = new THREE.ExtrudeGeometry(s, { depth: 0.12, curveSegments: 32, bevelThickness: 0.05, bevelSize: 0.035, bevelSegments: 6 });
+  geo.translate(0, 0, -0.06);
+  return geo;
 }
 
-function makePiece(type, color) {
-  const mat = mats[color], g = new THREE.Group(), h = HEIGHT[type], top = 0.12 + h;
-  g.add(part(new THREE.CylinderGeometry(0.32, 0.38, 0.12, 32), 0.06, mat));
-  g.add(part(new THREE.CylinderGeometry(type === 'r' ? 0.24 : 0.13, 0.26, h, 32), 0.12 + h / 2, mat));
-  switch (type) {
-    case 'p': g.add(part(new THREE.SphereGeometry(0.17, 32, 16), top + 0.1, mat)); break;
-    case 'r': g.add(part(new THREE.CylinderGeometry(0.3, 0.28, 0.18, 32), top + 0.09, mat)); break;
-    case 'n': {
-      const head = part(new THREE.BoxGeometry(0.22, 0.42, 0.5), top + 0.12, mat);
-      head.position.z = -0.08;
-      head.rotation.x = -0.5; // leans toward -z (the opponent, for white)
-      g.add(head);
-      break;
+// rook crown: 6 ring segments with gaps, extruded upward
+function battlements() {
+  const shapes = Array.from({ length: 6 }, (_, i) => {
+    const a0 = i * Math.PI / 3, a1 = a0 + Math.PI / 5, sh = new THREE.Shape();
+    sh.absarc(0, 0, 0.25, a0, a1, false);
+    sh.absarc(0, 0, 0.17, a1, a0, true);
+    return sh;
+  });
+  const geo = new THREE.ExtrudeGeometry(shapes, { depth: 0.09, curveSegments: 8, bevelThickness: 0.01, bevelSize: 0.008, bevelSegments: 2 });
+  geo.rotateX(-Math.PI / 2);
+  return geo;
+}
+
+function buildPiece(type, color) {
+  const g = new THREE.Group();
+  const add = (geo, x = 0, y = 0, z = 0) => {
+    const m = new THREE.Mesh(geo, mats[color]);
+    m.position.set(x, y, z);
+    m.castShadow = m.receiveShadow = true;
+    g.add(m);
+    return m;
+  };
+  add(new THREE.LatheGeometry(PROFILES[type].map(([r, y]) => new THREE.Vector2(r, y)), 48));
+  const ring = (n, r, y, geo) => {
+    for (let i = 0; i < n; i++) {
+      const a = i * 2 * Math.PI / n;
+      add(geo, Math.cos(a) * r, y, Math.sin(a) * r).rotation.y = -a;
     }
-    case 'b': {
-      const s = part(new THREE.SphereGeometry(0.18, 32, 16), top + 0.15, mat);
-      s.scale.y = 1.5;
-      g.add(s, part(new THREE.SphereGeometry(0.05, 16, 8), top + 0.43, mat));
-      break;
-    }
-    case 'q':
-      g.add(part(new THREE.CylinderGeometry(0.24, 0.14, 0.2, 32), top + 0.1, mat),
-            part(new THREE.SphereGeometry(0.08, 16, 8), top + 0.26, mat));
-      break;
-    case 'k':
-      g.add(part(new THREE.CylinderGeometry(0.22, 0.14, 0.18, 32), top + 0.09, mat),
-            part(new THREE.BoxGeometry(0.08, 0.3, 0.08), top + 0.33, mat),
-            part(new THREE.BoxGeometry(0.22, 0.08, 0.08), top + 0.36, mat));
-      break;
-  }
+  };
+  if (type === 'r') add(battlements(), 0, 0.64);
+  if (type === 'q') ring(8, 0.18, 0.905, new THREE.SphereGeometry(0.028, 12, 8)); // crown points
+  if (type === 'k') { add(new THREE.BoxGeometry(0.05, 0.2, 0.05), 0, 1.09); add(new THREE.BoxGeometry(0.15, 0.05, 0.05), 0, 1.12); }
+  if (type === 'n') add(knightHead(), 0, 0.17).rotation.y = Math.PI / 2; // +x turned to face -z (the opponent, for white)
   if (color === 'b') g.rotation.y = Math.PI;
   return g;
 }
+
+const templates = {};
+const makePiece = (type, color) => (templates[type + color] ??= buildPiece(type, color)).clone(); // clones share geometry
 
 const pieceGroup = new THREE.Group();
 scene.add(pieceGroup);
 
 // ponytail: animates the old meshes, then rebuilds every piece; fine at 32 pieces
 function syncPieces() {
-  pieceGroup.traverse(o => o.geometry?.dispose());
   pieceGroup.clear();
   for (const p of game.board().flat()) if (p) {
     const g = makePiece(p.type, p.color);
