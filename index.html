@@ -46,6 +46,16 @@
     <option value="w">Play White</option>
     <option value="b">Play Black</option>
   </select>
+  <select id="theme" aria-label="Board theme">
+    <option value="wood">Wood</option>
+    <option value="marble">Marble</option>
+    <option value="green">Tournament</option>
+    <option value="night">Night</option>
+  </select>
+  <label><input type="checkbox" id="sound" checked> Sound</label>
+  <button id="save">Save PGN</button>
+  <button id="load">Load PGN</button>
+  <input type="file" id="pgnFile" accept=".pgn,text/plain" hidden>
 </div>
 <div id="captured"><div id="capW"></div><div id="capB"></div></div>
 <dialog id="promo">
@@ -95,14 +105,60 @@ scene.add(frame);
 const squares = {};
 for (let f = 0; f < 8; f++) for (let r = 0; r < 8; r++) {
   const sq = FILES[f] + (r + 1);
-  const base = (f + r) % 2 === 0 ? 0x8b5a3c : 0xe8d6b0; // a1 is dark
-  const m = new THREE.Mesh(new THREE.BoxGeometry(1, 0.2, 1), new THREE.MeshStandardMaterial({ color: base }));
+  const m = new THREE.Mesh(new THREE.BoxGeometry(1, 0.2, 1), new THREE.MeshStandardMaterial());
   const [x, z] = toPos(sq);
   m.position.set(x, -0.1, z);
   m.receiveShadow = true;
-  m.userData = { sq, base };
+  m.userData = { sq, dark: (f + r) % 2 === 0 }; // a1 is dark; base colour comes from the theme
   scene.add(m);
   squares[sq] = m;
+}
+
+// --- settings that survive a reload (storage can be blocked, so never let it throw) ---
+const store = {
+  get: k => { try { return localStorage.getItem(k); } catch { return null; } },
+  set: (k, v) => { try { localStorage.setItem(k, v); } catch {} },
+};
+
+// --- themes ---
+const THEMES = {
+  wood:   { light: 0xe8d6b0, dark: 0x8b5a3c, frame: 0x3b2516, bg: 0x1d1f24 },
+  marble: { light: 0xeeeeee, dark: 0x8a8f98, frame: 0x44474d, bg: 0x202328 },
+  green:  { light: 0xeeeed2, dark: 0x769656, frame: 0x2f3b22, bg: 0x1b1f1a },
+  night:  { light: 0x9fb3c8, dark: 0x34495e, frame: 0x1a2533, bg: 0x0e1218 },
+};
+const themeEl = document.getElementById('theme');
+function applyTheme(name) {
+  const t = THEMES[name] ?? THEMES.wood;
+  for (const m of Object.values(squares)) m.userData.base = m.userData.dark ? t.dark : t.light;
+  frame.material.color.setHex(t.frame);
+  scene.background.setHex(t.bg);
+}
+themeEl.value = THEMES[store.get('theme')] ? store.get('theme') : 'wood';
+applyTheme(themeEl.value);
+
+// --- sounds (synthesised with Web Audio, no files) ---
+const soundEl = document.getElementById('sound');
+soundEl.checked = store.get('sound') !== 'off';
+let actx;
+function tone(freq, dur, type, vol, delay = 0) {
+  actx ??= new AudioContext();
+  const t = actx.currentTime + delay, o = actx.createOscillator(), g = actx.createGain();
+  o.type = type;
+  o.frequency.setValueAtTime(freq, t);
+  o.frequency.exponentialRampToValueAtTime(freq * 0.5, t + dur);
+  g.gain.setValueAtTime(vol, t);
+  g.gain.exponentialRampToValueAtTime(0.001, t + dur);
+  o.connect(g).connect(actx.destination);
+  o.start(t);
+  o.stop(t + dur);
+}
+function playSound(m) {
+  if (!soundEl.checked) return;
+  if (game.isGameOver()) [523, 659, 784].forEach((f, i) => tone(f, 0.5, 'triangle', 0.2, i * 0.12));
+  else if (game.inCheck()) { tone(880, 0.15, 'square', 0.1); tone(660, 0.2, 'square', 0.1, 0.12); }
+  else if (m.captured) tone(180, 0.18, 'triangle', 0.5);
+  else tone(320, 0.08, 'triangle', 0.35);
 }
 
 // --- pieces (built from primitives) ---
@@ -286,6 +342,7 @@ function paint() {
 function update() {
   paint();
   showCaptured();
+  store.set('pgn', game.pgn()); // autosave, restored on reload
   const side = game.turn() === 'w' ? 'White' : 'Black';
   statusEl.textContent =
     game.isCheckmate() ? `Checkmate: ${side === 'White' ? 'Black' : 'White'} wins` :
@@ -298,6 +355,7 @@ async function playMove(mv) {
   const m = game.move(mv);
   update();
   await animateMove(m);
+  playSound(m);
   syncPieces();
   await faceSideToMove();
   busy = false;
@@ -353,6 +411,26 @@ document.getElementById('undo').onclick = () => restart(() => {
 document.getElementById('reset').onclick = () => restart(() => game.reset());
 document.getElementById('flip').onclick = () => restart(flipCamera);
 autoflip.onchange = modeEl.onchange = sideEl.onchange = () => restart(() => {});
+themeEl.onchange = () => { store.set('theme', themeEl.value); applyTheme(themeEl.value); paint(); };
+soundEl.onchange = () => store.set('sound', soundEl.checked ? 'on' : 'off');
+
+// --- PGN save / load ---
+document.getElementById('save').onclick = () => {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([game.pgn()], { type: 'application/x-chess-pgn' }));
+  a.download = `chess-${new Date().toISOString().slice(0, 10)}.pgn`;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+};
+const pgnFile = document.getElementById('pgnFile');
+document.getElementById('load').onclick = () => pgnFile.click();
+pgnFile.onchange = async () => {
+  const text = await pgnFile.files[0]?.text();
+  pgnFile.value = ''; // lets the same file be picked again
+  if (!text) return;
+  try { new Chess().loadPgn(text); } catch { return alert('Could not read that PGN file.'); } // validate on a scratch board first
+  restart(() => game.loadPgn(text));
+};
 
 addEventListener('resize', () => {
   camera.aspect = innerWidth / innerHeight;
@@ -360,7 +438,7 @@ addEventListener('resize', () => {
   renderer.setSize(innerWidth, innerHeight);
 });
 
-restart(() => {});
+restart(() => { try { game.loadPgn(store.get('pgn') ?? ''); } catch {} }); // resume the autosaved game
 renderer.setAnimationLoop(() => { controls.update(); renderer.render(scene, camera); });
 Object.assign(window, { game, restart }); // console debugging: restart(() => game.load(fen))
 </script>
