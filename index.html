@@ -223,9 +223,9 @@
 </style>
 <script type="importmap">
 { "imports": {
-  "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
-  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/",
-  "chess.js": "https://cdn.jsdelivr.net/npm/chess.js@1.4.0/+esm"
+  "three": "/vendor/three/build/three.module.js",
+  "three/addons/": "/vendor/three/examples/jsm/",
+  "chess.js": "/vendor/chess.js"
 } }
 </script>
 </head>
@@ -606,8 +606,7 @@ function faceSideToMove() {
 }
 
 // --- computer opponent (Stockfish 10, runs in a Web Worker) ---
-const SF_URL = 'https://cdnjs.cloudflare.com/ajax/libs/stockfish.js/10.0.2/stockfish.js';
-const engine = new Worker(URL.createObjectURL(new Blob([`importScripts('${SF_URL}')`], { type: 'application/javascript' })));
+const engine = new Worker('/vendor/stockfish.js'); // Stockfish 10 (GPL-3.0), served by this site: see vendor/
 engine.postMessage('uci');
 const LEVELS = { easy: [0, 100], medium: [8, 300], hard: [15, 800], max: [20, 2000] }; // [Skill Level 0-20, think time ms]
 const modeEl = document.getElementById('mode'), sideEl = document.getElementById('side');

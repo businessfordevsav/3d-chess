@@ -12,7 +12,8 @@ import { Chess } from 'chess.js';
 import { glicko2 } from './glicko2.js';
 
 const ROOT = import.meta.dirname, PORT = process.env.PORT || 3000;
-const TYPES = { '.html': 'text/html; charset=utf-8', '.gltf': 'model/gltf+json', '.bin': 'application/octet-stream', '.jpg': 'image/jpeg', '.svg': 'image/svg+xml' };
+const TYPES = { '.html': 'text/html; charset=utf-8', '.gltf': 'model/gltf+json', '.bin': 'application/octet-stream', '.jpg': 'image/jpeg', '.svg': 'image/svg+xml',
+  '.js': 'text/javascript; charset=utf-8', '.txt': 'text/plain; charset=utf-8' };
 
 // --- database: accounts, sessions, finished games ---
 const DB_FILE = process.env.DB_FILE || join(ROOT, 'data', 'chess.db');
@@ -83,16 +84,19 @@ const RESERVED = /^(guest|white|black|stockfish|admin|administrator|moderator|sy
 
 // --- JSON API: sign up, sign in, sign out, profiles ---
 const json = (res, code, body) => res.writeHead(code, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }).end(JSON.stringify(body));
-// sent with every response. The page needs inline script/style (import map, module script) and loads
-// three.js / chess.js from jsDelivr, Stockfish from cdnjs (in a blob: worker) and fonts from Google.
+// Sent with every response. Scripts come only from this site (three.js, chess.js and Stockfish are served
+// from vendor/); the page's own inline scripts (import map, module script) are allowed by their exact hash,
+// so no other inline script can run. Only the fonts come from Google.
+const csp = (scriptHashes = []) => ["default-src 'self'", ["script-src 'self'", ...scriptHashes.map(h => `'sha256-${h}'`)].join(' '),
+  "worker-src 'self'", "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com", "font-src https://fonts.gstatic.com",
+  "img-src 'self' data: blob:", "connect-src 'self'", "object-src 'none'", "base-uri 'none'", "form-action 'self'", "frame-ancestors 'none'"].join('; ');
+const inlineScriptHashes = html => [...html.toString().matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/g)]
+  .filter(m => m[1].trim()).map(m => createHash('sha256').update(m[1]).digest('base64'));
 const SECURITY_HEADERS = {
-  'Content-Security-Policy': ["default-src 'self'", "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com blob:",
-    "worker-src 'self' blob:", "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com", "font-src https://fonts.gstatic.com",
-    "img-src 'self' data: blob:", "connect-src 'self' https://cdn.jsdelivr.net", "object-src 'none'", "base-uri 'none'",
-    "form-action 'self'", "frame-ancestors 'none'"].join('; '),
+  'Content-Security-Policy': csp(),
   'X-Frame-Options': 'DENY', // no framing: stops clickjacking of Resign and similar buttons
   'X-Content-Type-Options': 'nosniff',
-  'Referrer-Policy': 'same-origin', // game links in the URL don't leak to font/CDN hosts
+  'Referrer-Policy': 'same-origin', // game links in the URL don't leak to the font host
 };
 async function readJson(req) {
   let body = '';
@@ -166,12 +170,14 @@ const server = createServer(async (req, res) => {
   let path = '';
   try { path = normalize(decodeURIComponent(new URL(req.url, 'http://x').pathname)); } catch {}
   if (path.startsWith('/api/')) return api(req, res, path).catch(() => json(res, 500, { error: 'Server error.' }));
-  // only the page, its icon and the model folder are public (browsers that still ask for /favicon.ico get the same icon)
+  // only the page, its icon, the model folder and the vendored libraries are public
+  // (browsers that still ask for /favicon.ico get the same icon)
   const file = path === '/' || /^\/g\/[a-z0-9]+$/.test(path) ? 'index.html' : path === '/icon.svg' || path === '/favicon.ico' ? 'icon.svg'
-    : path.startsWith('/models/') ? path.slice(1) : null;
+    : path.startsWith('/models/') || path.startsWith('/vendor/') ? path.slice(1) : null;
   try {
     if (!file) throw 0;
     const body = await readFile(join(ROOT, file));
+    if (file === 'index.html') res.setHeader('Content-Security-Policy', csp(inlineScriptHashes(body))); // hashed each time, so edits stay in sync
     res.writeHead(200, { 'Content-Type': TYPES[extname(file)] ?? 'application/octet-stream' }).end(body);
   } catch {
     res.writeHead(404).end('Not found');
