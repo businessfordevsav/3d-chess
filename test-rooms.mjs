@@ -259,7 +259,7 @@ try {
   await back.next('joined');
   const resumed = await back.next('state');
   assert.equal(moves(resumed.pgn), '1. d4');
-  assert.equal(resumed.you, before.you);
+  assert.equal(resumed.you, 'w'); // lw is whoever played White
   assert.equal(resumed.clock.running, 'b');
   assert.ok(Math.abs(resumed.clock.b - moved.clock.b) < 1000, 'clock paused during the restart');
   back.ws.close();
