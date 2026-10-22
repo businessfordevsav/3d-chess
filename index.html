@@ -4,67 +4,189 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>3D Chess</title>
+<meta name="theme-color" content="#0e0f12">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
-  html, body { margin: 0; height: 100%; overflow: hidden; background: #1d1f24; font-family: system-ui, sans-serif; color: #eee; }
-  #hud { position: fixed; z-index: 2; top: 12px; left: 12px; right: 12px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
-  #status { background: #000a; padding: 8px 12px; border-radius: 8px; }
-  button { background: #333c; color: #eee; border: 1px solid #666; border-radius: 8px; padding: 8px 12px; cursor: pointer; font: inherit; }
-  button:hover { background: #444; }
-  select { background: #333c; color: #eee; border: 1px solid #666; border-radius: 8px; padding: 8px; font: inherit; }
-  select:disabled { opacity: 0.4; }
-  label { background: #000a; padding: 8px 12px; border-radius: 8px; cursor: pointer; }
-  #captured { position: fixed; bottom: 12px; left: 12px; right: 12px; display: flex; flex-direction: column; gap: 4px; pointer-events: none; }
-  #captured div { background: #000a; padding: 6px 12px; border-radius: 8px; align-self: flex-start; font-size: 20px; }
-  #captured div:empty { display: none; }
-  dialog { background: #2a2d33; color: #eee; border: 1px solid #666; border-radius: 12px; text-align: center; }
-  dialog::backdrop { background: #0008; }
-  #promo button { font-size: 36px; width: 64px; height: 64px; margin: 4px; }
-  #tcPick form { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-  #over h2 { margin: 4px 0; }
-  #over form { display: flex; gap: 8px; justify-content: center; margin-top: 12px; }
-  #share { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); width: min(420px, calc(100vw - 32px)); box-sizing: border-box;
-           background: #2a2d33ee; border: 1px solid #666; border-radius: 12px; padding: 16px; text-align: center; }
-  #share input { width: 100%; box-sizing: border-box; margin: 8px 0; padding: 8px; border-radius: 8px; border: 1px solid #666; background: #1d1f24; color: #eee; font: inherit; }
-  .online .local-only, .online-only { display: none; }
-  .online .online-only:not([hidden]) { display: inline-block; }
-  button:disabled { opacity: 0.5; cursor: default; }
-  #panel { position: fixed; right: 12px; top: 110px; bottom: 12px; width: 170px; display: flex; flex-direction: column; gap: 8px; pointer-events: none; }
-  #moves { flex: 0 1 auto; max-height: 30vh; overflow-y: auto; margin: 0; padding: 8px 8px 8px 36px; background: #000a; border-radius: 8px; pointer-events: auto; }
-  #moves:empty { display: none; }
-  #moves li span { display: inline-block; width: 56px; }
-  .clock { background: #000a; padding: 8px 12px; border-radius: 8px; font: 600 20px ui-monospace, monospace; text-align: right; }
-  .clock::before { content: attr(data-who); display: block; font: 13px system-ui, sans-serif; color: #ccc; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  #auth form, #profile > div { display: flex; flex-direction: column; gap: 8px; min-width: min(320px, 80vw); text-align: left; }
-  #auth input { padding: 8px; border-radius: 8px; border: 1px solid #666; background: #1d1f24; color: #eee; font: inherit; }
-  #auth .row, #profile .row { display: flex; gap: 8px; justify-content: flex-end; }
-  #authError { color: #f08080; margin: 0; min-height: 1.2em; }
-  #profileGames { list-style: none; margin: 0; padding: 0; max-height: 50vh; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; }
-  #profileGames li { display: flex; gap: 8px; align-items: center; justify-content: space-between; background: #0006; padding: 6px 10px; border-radius: 8px; }
-  .clock:empty:not([data-who]) { display: none; } /* no clock: still show who is playing */
-  .clock.running { background: #2f5d3a; }
-  .clock.running.low { background: #8a2b2b; }
-  #chat { display: flex; flex-direction: column; gap: 6px; background: #000a; border-radius: 8px; padding: 8px; pointer-events: auto; }
-  #chat[hidden] { display: none; }
-  #chatLog { list-style: none; margin: 0; padding: 0; max-height: 25vh; overflow-y: auto; font-size: 14px; overflow-wrap: anywhere; }
-  #chatLog b { font-weight: 600; }
-  #chat input { width: 100%; box-sizing: border-box; padding: 6px; border-radius: 6px; border: 1px solid #666; background: #1d1f24; color: #eee; font: inherit; }
-  #lobby { position: fixed; z-index: 1; inset: 0; overflow-y: auto; background: #0009; display: flex; justify-content: center; align-items: flex-start; padding: 120px 16px 16px; box-sizing: border-box; }
-  #lobby[hidden] { display: none; }
-  #lobby > div { width: min(520px, 100%); background: #2a2d33f2; border: 1px solid #555; border-radius: 14px; padding: 20px; }
-  #lobby h1 { margin: 0 0 4px; font-size: 28px; }
-  #lobby h2 { font-size: 16px; margin: 20px 0 8px; color: #bbb; }
-  #lobby .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
-  #lobby .row { display: flex; gap: 8px; flex-wrap: wrap; }
-  #lobby .seeking { outline: 2px solid #7cc47f; }
-  #liveList { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
-  #liveList li { display: flex; justify-content: space-between; align-items: center; background: #0006; padding: 6px 10px; border-radius: 8px; }
-  #panelToggle { display: none; }
-  @media (max-width: 640px) {
-    #panelToggle { display: inline-block; }
-    body:not(.show-panel) #moves, body:not(.show-panel) #chat { display: none; }
-    #panel { top: auto; width: 140px; }
-    body.show-panel #panel { width: auto; left: 12px; max-height: 60vh; }
+  /* ---------- design tokens ---------- */
+  :root {
+    --scene-bg: #0e0f12;
+    --bg: #0e0f12; --surface: rgba(22, 23, 28, 0.72); --surface-solid: #17181d; --raised: rgba(255, 255, 255, 0.05);
+    --line: rgba(255, 255, 255, 0.09); --line-strong: rgba(255, 255, 255, 0.16);
+    --text: #ece7dc; --muted: #9b958a; --gold: #d4af6a; --gold-soft: rgba(212, 175, 106, 0.16); --gold-ink: #1a1408;
+    --danger: #e0716a; --ok: #7fc28a;
+    --radius: 14px; --radius-sm: 10px; --shadow: 0 10px 40px rgba(0, 0, 0, 0.45);
+    --serif: 'Cormorant Garamond', Georgia, 'Times New Roman', serif;
+    --sans: Inter, system-ui, -apple-system, 'Segoe UI', sans-serif;
+    --mono: ui-monospace, 'SF Mono', Menlo, monospace;
+    --ease: cubic-bezier(.2, .7, .2, 1);
   }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; overflow: hidden; }
+  body {
+    font: 400 14px/1.45 var(--sans); color: var(--text); -webkit-font-smoothing: antialiased;
+    background: radial-gradient(ellipse at 50% 42%, color-mix(in srgb, var(--scene-bg), #fff 7%) 0%, var(--scene-bg) 48%, #050506 100%);
+  }
+  canvas { display: block; }
+  h1, h2, h3 { font-family: var(--serif); font-weight: 600; letter-spacing: 0.01em; margin: 0; }
+  :focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
+  [hidden] { display: none !important; }
+
+  /* ---------- controls ---------- */
+  button {
+    font: 500 14px/1 var(--sans); color: var(--text); background: var(--raised); border: 1px solid var(--line);
+    border-radius: var(--radius-sm); padding: 10px 14px; cursor: pointer;
+    transition: background .15s var(--ease), border-color .15s var(--ease), transform .1s var(--ease);
+  }
+  button:hover:not(:disabled) { background: rgba(255, 255, 255, 0.09); border-color: var(--line-strong); }
+  button:active:not(:disabled) { transform: translateY(1px); }
+  button:disabled { opacity: .45; cursor: default; }
+  button.primary { background: var(--gold); color: var(--gold-ink); border-color: var(--gold); font-weight: 600; }
+  button.primary:hover:not(:disabled) { background: #e0bf7f; border-color: #e0bf7f; }
+  button.ghost { background: transparent; border-color: transparent; }
+  button.ghost:hover:not(:disabled) { background: var(--raised); border-color: var(--line); }
+  button.link { background: none; border: none; padding: 4px; color: var(--muted); text-decoration: underline; text-underline-offset: 3px; }
+  button.link:hover:not(:disabled) { background: none; color: var(--text); }
+  select, input[type="text"], input[type="password"], input:not([type]) {
+    font: inherit; color: var(--text); background: rgba(0, 0, 0, 0.35); border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 9px 11px; width: 100%;
+  }
+  select:disabled { opacity: .45; }
+  .glass { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow);
+           backdrop-filter: blur(16px) saturate(1.2); -webkit-backdrop-filter: blur(16px) saturate(1.2); }
+  .online .local-only, .online-only { display: none !important; }
+  .online .online-only:not([hidden]) { display: inline-flex !important; }
+
+  /* ---------- top bar ---------- */
+  #topbar { position: fixed; z-index: 3; top: 0; left: 0; right: 0; height: 60px; padding: 0 16px; display: flex; align-items: center; gap: 16px;
+            background: linear-gradient(to bottom, rgba(8, 8, 10, .85), rgba(8, 8, 10, 0)); }
+  .brand { display: flex; align-items: center; gap: 10px; color: var(--text); text-decoration: none; flex-shrink: 0; }
+  .brand-mark { width: 34px; height: 34px; display: grid; place-items: center; border-radius: 50%; background: var(--gold-soft);
+                border: 1px solid rgba(212, 175, 106, .4); color: var(--gold); font-size: 20px; }
+  .brand-name { font: 600 24px/1 var(--serif); letter-spacing: .02em; }
+  #status { flex: 1; min-width: 0; text-align: center; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .top-actions { display: flex; gap: 6px; align-items: center; flex-shrink: 0; }
+  #account:not([hidden]) { display: inline-flex; align-items: center; gap: 8px; }
+  #panelToggle { position: relative; width: 42px; height: 42px; padding: 0; font-size: 18px; }
+  #unread { position: absolute; top: 7px; right: 7px; width: 9px; height: 9px; border-radius: 50%; background: var(--gold); box-shadow: 0 0 0 2px var(--bg); }
+
+  /* ---------- player cards ---------- */
+  .player-card { position: fixed; z-index: 2; left: 16px; width: min(320px, calc(100vw - 32px)); display: grid; grid-template-columns: auto 1fr auto;
+                 align-items: center; gap: 12px; padding: 10px 12px; transition: border-color .2s var(--ease), box-shadow .2s var(--ease); }
+  #cardTop { top: 72px; }
+  #cardBottom { bottom: 16px; }
+  .player-card.to-move { border-color: rgba(212, 175, 106, .55); box-shadow: var(--shadow), 0 0 0 1px rgba(212, 175, 106, .25), 0 0 24px rgba(212, 175, 106, .12); }
+  .avatar { width: 38px; height: 38px; border-radius: 50%; display: grid; place-items: center; font: 600 18px/1 var(--serif);
+            border: 1px solid var(--line-strong); }
+  .avatar.w { background: #ece7dc; color: #1a1a1a; }
+  .avatar.b { background: #1b1b1f; color: #ece7dc; }
+  .pinfo { min-width: 0; }
+  .pname { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .pcap { color: var(--muted); font-size: 20px; line-height: 1.1; min-height: 1.1em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .pclock { font: 600 22px/1 var(--mono); padding: 8px 10px; border-radius: var(--radius-sm); background: rgba(0, 0, 0, .35); min-width: 86px; text-align: right;
+            font-variant-numeric: tabular-nums; }
+  .pclock:empty { display: none; }
+  .pclock.running { background: var(--gold); color: var(--gold-ink); }
+  .pclock.running.low { background: var(--danger); color: #fff; }
+
+  /* ---------- action dock ---------- */
+  #dock { position: fixed; z-index: 2; bottom: 16px; left: 50%; transform: translateX(-50%); display: flex; gap: 6px; padding: 6px; }
+  #dock button { display: inline-flex; align-items: center; gap: 8px; }
+  #dock button::before { content: attr(data-icon); font-size: 16px; line-height: 1; }
+
+  /* ---------- drawer: moves, chat, settings ---------- */
+  #drawer { position: fixed; z-index: 4; top: 68px; right: 12px; bottom: 12px; width: 340px; overflow-y: auto; padding: 6px 16px 16px;
+            display: flex; flex-direction: column; transform: translateX(calc(100% + 24px)); transition: transform .28s var(--ease); }
+  .drawer-open #drawer { transform: none; }
+  #drawer section { padding: 14px 0; border-bottom: 1px solid var(--line); }
+  #drawer section:last-child { border-bottom: none; }
+  #drawer h3 { font-size: 20px; margin-bottom: 10px; color: var(--gold); }
+  #moves { margin: 0; padding: 0 0 0 30px; max-height: 32vh; overflow-y: auto; font-variant-numeric: tabular-nums; }
+  #moves li { padding: 3px 0; color: var(--muted); }
+  #moves li span { display: inline-block; width: 70px; color: var(--text); }
+  #moves:not(:empty) + .empty-note { display: none; }
+  .empty-note { margin: 0; color: var(--muted); }
+  #chatLog { list-style: none; margin: 0 0 10px; padding: 0; max-height: 26vh; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; overflow-wrap: anywhere; }
+  #chatLog li { background: rgba(0, 0, 0, .25); border-radius: var(--radius-sm); padding: 6px 10px; }
+  #chatLog b { color: var(--gold); font-weight: 600; }
+  .field { display: grid; gap: 6px; margin-bottom: 12px; color: var(--muted); }
+  .switch { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; cursor: pointer; }
+  .switch input { width: 18px; height: 18px; accent-color: var(--gold); }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; }
+
+  /* ---------- share card ---------- */
+  #share { position: fixed; z-index: 2; top: 50%; left: 50%; transform: translate(-50%, -50%); width: min(440px, calc(100vw - 32px)); padding: 22px; text-align: center; }
+  #share h2 { font-size: 28px; }
+  #share p { color: var(--muted); }
+  #share input { margin: 6px 0 12px; text-align: center; }
+
+  /* ---------- menu (lobby) ---------- */
+  #lobby { position: fixed; z-index: 2; inset: 0; overflow-y: auto; display: flex; justify-content: center; align-items: flex-start; padding: 84px 16px 24px;
+           background: radial-gradient(ellipse at 50% 30%, rgba(14, 15, 18, .55), rgba(5, 5, 6, .88)); }
+  .lobby-card { width: min(560px, 100%); padding: 28px; }
+  .eyebrow { margin: 0; color: var(--gold); letter-spacing: .22em; text-transform: uppercase; font-size: 12px; }
+  .lobby-card h1 { font-size: clamp(40px, 8vw, 56px); line-height: 1; margin: 4px 0 6px; }
+  .tagline { margin: 0 0 22px; color: var(--muted); }
+  .lobby-card h2 { font-size: 20px; margin: 22px 0 10px; }
+  .tc-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+  .tc-grid button, .choice { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; padding: 14px; text-align: left; }
+  .tc-grid b { font: 600 20px/1 var(--sans); }
+  .tc-grid small, .choice small { color: var(--muted); font-size: 12px; }
+  .choice b { font-weight: 600; }
+  .choice.wide { width: 100%; margin-top: 8px; }
+  .choice-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 8px; }
+  .tc-grid button.seeking { border-color: var(--gold); background: var(--gold-soft); }
+  #seekStatus { display: flex; align-items: center; gap: 10px; color: var(--muted); margin: 12px 0 0; }
+  .spinner { width: 14px; height: 14px; border: 2px solid var(--gold-soft); border-top-color: var(--gold); border-radius: 50%; animation: spin 1s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  #liveList { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+  #liveList li { display: flex; justify-content: space-between; align-items: center; gap: 10px; background: rgba(0, 0, 0, .25);
+                 border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 8px 8px 8px 12px; }
+  #closeLobby { display: block; margin: 20px auto 0; }
+  #lobbyOffline { color: var(--muted); }
+
+  /* ---------- dialogs ---------- */
+  dialog { color: var(--text); background: var(--surface-solid); border: 1px solid var(--line-strong); border-radius: 18px; padding: 24px;
+           box-shadow: 0 30px 80px rgba(0, 0, 0, .6); text-align: center; max-width: calc(100vw - 32px); }
+  dialog::backdrop { background: rgba(4, 4, 6, .62); backdrop-filter: blur(3px); }
+  dialog h2 { font-size: 30px; margin-bottom: 6px; }
+  dialog p { color: var(--muted); margin: 0 0 14px; }
+  #promo button { font-size: 40px; width: 72px; height: 72px; margin: 4px; padding: 0; }
+  #tcPick form { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  #tcPick button { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; padding: 14px; min-width: 140px; }
+  #tcPick b { font-size: 18px; }
+  #tcPick small { color: var(--muted); font-size: 12px; }
+  #over form { display: flex; gap: 8px; justify-content: center; margin-top: 18px; }
+  #overTitle { font-size: 40px; }
+  #auth form, #profile > div { display: flex; flex-direction: column; gap: 10px; width: min(380px, 80vw); text-align: left; }
+  #auth label { color: var(--muted); }
+  #auth .row, #profile .row { justify-content: flex-end; margin-top: 6px; }
+  #authError { color: var(--danger); margin: 0; min-height: 1.2em; }
+  #profileRating { color: var(--gold); }
+  #profileGames { list-style: none; margin: 0; padding: 0; max-height: 50vh; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; }
+  #profileGames li { display: flex; gap: 10px; align-items: center; justify-content: space-between; background: rgba(0, 0, 0, .25);
+                     border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 8px 8px 8px 12px; }
+
+  /* ---------- phones ---------- */
+  @media (max-width: 720px) {
+    #topbar { height: 54px; padding: 0 10px; gap: 8px; }
+    .brand-name { display: none; }
+    #status { font-size: 13px; }
+    #online, #account { padding: 9px 10px; }
+    .player-card { width: calc(100vw - 20px); left: 10px; padding: 8px 10px; }
+    #cardTop { top: 60px; }
+    #cardBottom { bottom: 70px; }
+    .pclock { font-size: 19px; min-width: 76px; }
+    #dock { bottom: 10px; max-width: calc(100vw - 20px); }
+    #dock button { font-size: 0; gap: 0; padding: 11px 13px; } /* icons only; the text stays as the accessible name */
+    #dock button::before { font-size: 18px; }
+    #drawer { top: auto; left: 0; right: 0; bottom: 0; width: auto; max-height: 72vh; border-radius: 18px 18px 0 0; transform: translateY(105%); }
+    .tc-grid { grid-template-columns: repeat(2, 1fr); }
+    .choice-row { grid-template-columns: 1fr; }
+    .lobby-card { padding: 20px; }
+    #lobby { padding-top: 70px; }
+  }
+  @media (prefers-reduced-motion: reduce) { *, *::before { transition: none !important; animation: none !important; } }
 </style>
 <script type="importmap">
 { "imports": {
@@ -75,117 +197,160 @@
 </script>
 </head>
 <body>
-<div id="hud">
-  <span id="status"></span>
-  <button id="online">Menu</button>
-  <button id="account" hidden>Sign in</button>
-  <button id="panelToggle" aria-pressed="false">Moves / Chat</button>
-  <button id="resign" class="online-only" hidden>Resign</button>
-  <button id="drawBtn" class="online-only" hidden>Offer draw</button>
-  <button id="declineBtn" class="online-only" hidden>Decline draw</button>
-  <button id="rematchBtn" class="online-only" hidden>Rematch</button>
-  <button id="undo" class="local-only">Undo</button>
-  <button id="reset" class="local-only">New game</button>
-  <button id="flip">Flip board</button>
-  <label class="local-only"><input type="checkbox" id="autoflip"> Auto-flip</label>
-  <select id="mode" class="local-only" aria-label="Opponent">
-    <option value="2p">2 players</option>
-    <option value="easy">vs CPU: Easy</option>
-    <option value="medium">vs CPU: Medium</option>
-    <option value="hard">vs CPU: Hard</option>
-    <option value="max">vs CPU: Max</option>
-  </select>
-  <select id="side" class="local-only" aria-label="Your colour">
-    <option value="w">Play White</option>
-    <option value="b">Play Black</option>
-  </select>
-  <select id="theme" aria-label="Board theme">
-    <option value="real">Real marble board</option>
-    <option value="wood">Wood</option>
-    <option value="marble">Marble</option>
-    <option value="green">Tournament</option>
-    <option value="night">Night</option>
-  </select>
-  <label><input type="checkbox" id="sound" checked> Sound</label>
-  <button id="save">Save PGN</button>
-  <button id="load" class="local-only">Load PGN</button>
-  <input type="file" id="pgnFile" accept=".pgn,text/plain" hidden>
+<header id="topbar">
+  <a class="brand" href="/" aria-label="3D Chess, home"><span class="brand-mark" aria-hidden="true">♞</span><span class="brand-name">3D Chess</span></a>
+  <span id="status" role="status"></span>
+  <nav class="top-actions" aria-label="Site">
+    <button id="online" class="ghost">Menu</button>
+    <button id="account" class="ghost" hidden>Sign in</button>
+    <button id="panelToggle" class="ghost" aria-label="Moves, chat and settings" aria-expanded="false" aria-controls="drawer">☰<span id="unread" hidden></span></button>
+  </nav>
+</header>
+
+<section id="cardTop" class="player-card glass" aria-label="Top player">
+  <div class="avatar" aria-hidden="true"></div>
+  <div class="pinfo"><div class="pname"></div><div class="pcap" aria-label="Captured pieces"></div></div>
+  <div id="clockTop" class="pclock"></div>
+</section>
+<section id="cardBottom" class="player-card glass" aria-label="Bottom player">
+  <div class="avatar" aria-hidden="true"></div>
+  <div class="pinfo"><div class="pname"></div><div class="pcap" aria-label="Captured pieces"></div></div>
+  <div id="clockBottom" class="pclock"></div>
+</section>
+
+<div id="dock" class="glass" role="toolbar" aria-label="Game actions">
+  <button id="flip" data-icon="⇅">Flip</button>
+  <button id="undo" class="local-only" data-icon="↶">Undo</button>
+  <button id="reset" class="local-only" data-icon="＋">New game</button>
+  <button id="resign" class="online-only" data-icon="⚑" hidden>Resign</button>
+  <button id="drawBtn" class="online-only" data-icon="½" hidden>Offer draw</button>
+  <button id="declineBtn" class="online-only" data-icon="✕" hidden>Decline draw</button>
+  <button id="rematchBtn" class="online-only primary" data-icon="↻" hidden>Rematch</button>
 </div>
-<div id="share" hidden>
-  <p>Send this link to your friend. The game starts when they open it.</p>
-  <input id="shareUrl" readonly aria-label="Game link">
-  <button id="copy">Copy link</button>
-</div>
-<div id="panel">
-  <div id="clockTop" class="clock"></div>
-  <ol id="moves" aria-label="Moves"></ol>
-  <div id="chat" hidden>
-    <ul id="chatLog" aria-live="polite" aria-label="Chat"></ul>
+
+<aside id="drawer" class="glass" aria-label="Moves, chat and settings">
+  <section>
+    <h3>Moves</h3>
+    <ol id="moves" aria-label="Moves"></ol>
+    <p class="empty-note">No moves yet.</p>
+  </section>
+  <section id="chat" hidden>
+    <h3>Chat</h3>
+    <ul id="chatLog" aria-live="polite" aria-label="Chat messages"></ul>
     <form id="chatForm"><input id="chatInput" maxlength="200" placeholder="Say something…" autocomplete="off" aria-label="Chat message"></form>
-  </div>
-  <div id="clockBottom" class="clock"></div>
+  </section>
+  <section class="local-only">
+    <h3>Game</h3>
+    <label class="field">Opponent
+      <select id="mode">
+        <option value="2p">Pass and play</option>
+        <option value="easy">Computer · Easy</option>
+        <option value="medium">Computer · Medium</option>
+        <option value="hard">Computer · Hard</option>
+        <option value="max">Computer · Max</option>
+      </select>
+    </label>
+    <label class="field">You play
+      <select id="side"><option value="w">White</option><option value="b">Black</option></select>
+    </label>
+    <label class="switch"><input type="checkbox" id="autoflip"> Turn the board after each move</label>
+  </section>
+  <section>
+    <h3>Settings</h3>
+    <label class="field">Board
+      <select id="theme">
+        <option value="real">Marble (3D model)</option>
+        <option value="wood">Wood</option>
+        <option value="marble">Grey marble</option>
+        <option value="green">Tournament green</option>
+        <option value="night">Night</option>
+      </select>
+    </label>
+    <label class="switch"><input type="checkbox" id="sound" checked> Sound</label>
+    <div class="row"><button id="save">Save PGN</button><button id="load" class="local-only">Load PGN</button></div>
+    <input type="file" id="pgnFile" accept=".pgn,text/plain" hidden>
+  </section>
+</aside>
+
+<div id="share" class="glass" hidden>
+  <h2>Invite a friend</h2>
+  <p>Send this link. The game starts as soon as they open it.</p>
+  <input id="shareUrl" readonly aria-label="Game link">
+  <button id="copy" class="primary">Copy link</button>
 </div>
+
 <div id="lobby" hidden>
-  <div>
+  <div class="lobby-card glass">
+    <p class="eyebrow">Welcome to</p>
     <h1>3D Chess</h1>
+    <p class="tagline">Real pieces on a marble board. Play anyone, live.</p>
     <div id="lobbyOnline">
-      <h2>Quick pairing with a random opponent</h2>
-      <div class="grid" id="seekBtns">
-        <button data-tc="1+0">1+0 Bullet</button><button data-tc="3+2">3+2 Blitz</button><button data-tc="5+3">5+3 Blitz</button>
-        <button data-tc="10+0">10+0 Rapid</button><button data-tc="15+10">15+10 Rapid</button><button data-tc="none">No clock</button>
+      <h2>Quick pairing</h2>
+      <div class="tc-grid" id="seekBtns">
+        <button data-tc="1+0"><b>1+0</b><small>Bullet</small></button>
+        <button data-tc="3+2"><b>3+2</b><small>Blitz</small></button>
+        <button data-tc="5+3"><b>5+3</b><small>Blitz</small></button>
+        <button data-tc="10+0"><b>10+0</b><small>Rapid</small></button>
+        <button data-tc="15+10"><b>15+10</b><small>Rapid</small></button>
+        <button data-tc="none"><b>∞</b><small>No clock</small></button>
       </div>
-      <p id="seekStatus" hidden>Looking for an opponent… <button id="cancelSeek">Cancel</button></p>
-      <h2>Play a friend</h2>
-      <button id="friendBtn">Create a private game link</button>
+      <p id="seekStatus" hidden><span class="spinner" aria-hidden="true"></span>Looking for an opponent… <button id="cancelSeek" class="link">Cancel</button></p>
+      <button id="friendBtn" class="choice wide"><b>Play a friend</b><small>Make a private link and send it to them</small></button>
     </div>
     <p id="lobbyOffline" hidden>Online play needs the game server. Run <code>npm start</code> and open http://localhost:3000.</p>
-    <h2>Play on this device</h2>
-    <div class="row"><button id="vsCpu">Play the computer</button><button id="local2p">Two players, one screen</button><button id="closeLobby">Back to the board</button></div>
+    <h2>On this device</h2>
+    <div class="choice-row">
+      <button id="vsCpu" class="choice"><b>Play the computer</b><small>Stockfish, four levels</small></button>
+      <button id="local2p" class="choice"><b>Pass and play</b><small>Two players, one screen</small></button>
+    </div>
     <div id="liveSection" hidden>
-      <h2>Live games</h2>
+      <h2>Live now</h2>
       <ul id="liveList"></ul>
     </div>
+    <button id="closeLobby" class="link">Back to the board</button>
   </div>
 </div>
+
 <dialog id="tcPick">
-  <p>Choose a time control</p>
+  <h2>Time control</h2>
+  <p>How long should each player have?</p>
   <form method="dialog">
-    <button value="1+0">1+0 Bullet</button><button value="3+2">3+2 Blitz</button>
-    <button value="5+3">5+3 Blitz</button><button value="10+0">10+0 Rapid</button>
-    <button value="15+10">15+10 Rapid</button><button value="none">No clock</button>
+    <button value="1+0"><b>1+0</b><small>Bullet</small></button><button value="3+2"><b>3+2</b><small>Blitz</small></button>
+    <button value="5+3"><b>5+3</b><small>Blitz</small></button><button value="10+0"><b>10+0</b><small>Rapid</small></button>
+    <button value="15+10"><b>15+10</b><small>Rapid</small></button><button value="none"><b>∞</b><small>No clock</small></button>
   </form>
 </dialog>
 <dialog id="auth">
   <form id="authForm">
-    <h2 style="margin: 0">Sign in</h2>
-    <label for="authName" style="background: none; padding: 0">Name</label>
+    <h2>Welcome back</h2>
+    <p style="margin: 0">Sign in to keep a rating and your game history.</p>
+    <label for="authName">Name</label>
     <input id="authName" autocomplete="username" required minlength="3" maxlength="20" pattern="[A-Za-z0-9_]+">
-    <label for="authPass" style="background: none; padding: 0">Password</label>
+    <label for="authPass">Password</label>
     <input id="authPass" type="password" autocomplete="current-password" required minlength="8" maxlength="200">
     <p id="authError" role="alert"></p>
     <div class="row">
-      <button type="button" id="authCancel">Cancel</button>
+      <button type="button" id="authCancel" class="ghost">Cancel</button>
       <button value="signup">Create account</button>
-      <button value="login">Sign in</button>
+      <button value="login" class="primary">Sign in</button>
     </div>
   </form>
 </dialog>
 <dialog id="profile">
   <div>
-    <h2 id="profileName" style="margin: 0"></h2>
+    <h2 id="profileName"></h2>
     <p id="profileRating" style="margin: 0"></p>
     <ul id="profileGames"></ul>
-    <div class="row"><button id="signOut">Sign out</button><button id="profileClose">Close</button></div>
+    <div class="row"><button id="signOut" class="ghost">Sign out</button><button id="profileClose" class="primary">Close</button></div>
   </div>
 </dialog>
 <dialog id="over">
   <h2 id="overTitle"></h2>
   <p id="overReason"></p>
-  <form method="dialog"><button id="again" value="again"></button><button value="">View board</button></form>
+  <form method="dialog"><button value="" class="ghost">View board</button><button id="again" value="again" class="primary"></button></form>
 </dialog>
-<div id="captured"><div id="capW"></div><div id="capB"></div></div>
 <dialog id="promo">
-  <p>Promote to</p>
+  <h2>Promote to</h2>
   <form method="dialog">
     <button value="q" title="Queen">♕&#xFE0E;</button><button value="r" title="Rook">♖&#xFE0E;</button><button value="b" title="Bishop">♗&#xFE0E;</button><button value="n" title="Knight">♘&#xFE0E;</button>
   </form>
@@ -201,10 +366,9 @@ const game = new Chess();
 
 // --- scene ---
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x1d1f24);
 const camera = new THREE.PerspectiveCamera(45, innerWidth / innerHeight, 0.1, 100);
 camera.position.set(0, 10, 10);
-const renderer = new THREE.WebGLRenderer({ antialias: true });
+const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true }); // transparent: the page's gradient shows behind the board
 renderer.setPixelRatio(devicePixelRatio);
 renderer.setSize(innerWidth, innerHeight);
 renderer.shadowMap.enabled = true;
@@ -214,7 +378,7 @@ renderer.toneMappingExposure = 0.85;
 document.body.appendChild(renderer.domElement);
 
 const controls = new OrbitControls(camera, renderer.domElement);
-Object.assign(controls, { enableDamping: true, enablePan: false, minDistance: 6, maxDistance: 25, maxPolarAngle: Math.PI / 2.2 });
+Object.assign(controls, { enableDamping: true, enablePan: false, minDistance: 6, maxDistance: 36, maxPolarAngle: Math.PI / 2.2 });
 
 scene.environment = new THREE.PMREMGenerator(renderer).fromScene(new RoomEnvironment(), 0.04).texture; // soft reflections on the lacquer
 scene.add(new THREE.HemisphereLight(0xffffff, 0x444444, 0.4));
@@ -255,8 +419,8 @@ const store = makeStore('localStorage');
 
 // --- themes ---
 const THEMES = {
-  real:   { light: 0xe8d6b0, dark: 0x8b5a3c, frame: 0x3b2516, bg: 0x1d1f24, model: true }, // board from the 3D model; squares become highlight overlays
-  wood:   { light: 0xe8d6b0, dark: 0x8b5a3c, frame: 0x3b2516, bg: 0x1d1f24 },
+  real:   { light: 0xe8d6b0, dark: 0x8b5a3c, frame: 0x3b2516, bg: 0x16171b, model: true }, // board from the 3D model; squares become highlight overlays
+  wood:   { light: 0xe8d6b0, dark: 0x8b5a3c, frame: 0x3b2516, bg: 0x1a1612 },
   marble: { light: 0xeeeeee, dark: 0x8a8f98, frame: 0x44474d, bg: 0x202328 },
   green:  { light: 0xeeeed2, dark: 0x769656, frame: 0x2f3b22, bg: 0x1b1f1a },
   night:  { light: 0x9fb3c8, dark: 0x34495e, frame: 0x1a2533, bg: 0x0e1218 },
@@ -268,7 +432,7 @@ function applyTheme(name) {
   const t = THEMES[name];
   for (const m of Object.values(squares)) m.userData.base = m.userData.dark ? t.dark : t.light;
   frame.material.color.setHex(t.frame);
-  scene.background.setHex(t.bg);
+  document.documentElement.style.setProperty('--scene-bg', '#' + t.bg.toString(16).padStart(6, '0'));
   frame.visible = !useRealBoard();
   if (realBoard) realBoard.visible = useRealBoard();
 }
@@ -422,16 +586,14 @@ async function maybeCpu() {
 // --- captured pieces ---
 const VAL = { p: 1, n: 3, b: 3, r: 5, q: 9 };
 const GLYPH = { w: { p: '♙', n: '♘', b: '♗', r: '♖', q: '♕' }, b: { p: '♟', n: '♞', b: '♝', r: '♜', q: '♛' } };
-const capEl = { w: document.getElementById('capW'), b: document.getElementById('capB') };
+const capText = { w: '', b: '' }; // pieces each side has taken, shown in that side's player card
 function showCaptured() {
   const caps = { w: [], b: [] }; // pieces taken BY each colour
   for (const m of game.history({ verbose: true })) if (m.captured) caps[m.color].push(m.captured);
   const score = c => caps[c].reduce((s, p) => s + VAL[p], 0);
   for (const c of ['w', 'b']) {
     const other = c === 'w' ? 'b' : 'w', diff = score(c) - score(other);
-    capEl[c].textContent = caps[c].length
-      ? `${c === 'w' ? 'White' : 'Black'}: ${caps[c].sort((x, y) => VAL[y] - VAL[x]).map(p => GLYPH[other][p] + '︎').join('')}${diff > 0 ? ' +' + diff : ''}`
-      : '';
+    capText[c] = caps[c].sort((x, y) => VAL[y] - VAL[x]).map(p => GLYPH[other][p] + '︎').join('') + (diff > 0 ? ` +${diff}` : '');
   }
 }
 
@@ -541,7 +703,7 @@ function update() {
     btn('rematchBtn').textContent = online.rematch.includes(me) ? 'Rematch requested' : online.rematch.includes(opp) ? 'Accept rematch' : 'Rematch';
     btn('rematchBtn').disabled = online.rematch.includes(me);
   }
-  statusEl.textContent = text;
+  statusEl.textContent = statusEl.title = text;
   const key = res && game.pgn() + res.reason;
   if (key && key !== shownOver && btn('lobby').hidden) { shownOver = key; setTimeout(() => showOver(res), 700); } // after the last move lands; not over the menu
   if (!res && over.open) over.close(); // a rematch started
@@ -667,6 +829,7 @@ async function onServer(m) {
       log.append(li);
     }
     log.scrollTop = log.scrollHeight;
+    if (m.log.length && !document.body.classList.contains('drawer-open')) btn('unread').hidden = false;
     return;
   }
   if (m.t === 'joined') {
@@ -677,7 +840,7 @@ async function onServer(m) {
     history.replaceState(null, '', '/g/' + m.room);
     shareUrl.value = location.href;
     document.body.classList.add('online');
-    document.getElementById('online').textContent = 'Leave online game';
+    document.getElementById('online').textContent = 'Leave game';
   }
   if (m.t === 'state') {
     Object.assign(online, { color: m.you, seats: m.seats, tc: m.tc, clock: m.clock, clockAt: performance.now(),
@@ -740,17 +903,28 @@ function fmt(ms) {
   const t = Math.ceil(ms / 1000);
   return `${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')}`;
 }
+// player cards: the side nearest the camera is at the bottom; refreshed often so clocks tick smoothly
+const LEVEL = { easy: 'Easy', medium: 'Medium', hard: 'Hard', max: 'Max' };
+function cardName(side) {
+  if (online) return who(side);
+  if (cpuColor()) return side === cpuColor() ? `Stockfish · ${LEVEL[modeEl.value]}` : 'You';
+  return NAME[side];
+}
 setInterval(() => {
-  const c = online?.clock;
-  const me = online?.color ?? 'w'; // spectators see White at the bottom
-  for (const [id, side] of [['clockBottom', me], ['clockTop', otherColor(me)]]) {
-    const el = btn(id);
-    if (online) el.dataset.who = who(side); else delete el.dataset.who;
-    if (!c) { el.textContent = ''; continue; }
+  const c = online?.clock, bottom = camera.position.z >= 0 ? 'w' : 'b', over = currentResult();
+  for (const [id, side] of [['cardBottom', bottom], ['cardTop', otherColor(bottom)]]) {
+    const card = btn(id), clock = card.querySelector('.pclock'), avatar = card.querySelector('.avatar');
+    const name = cardName(side);
+    card.querySelector('.pname').textContent = name;
+    card.querySelector('.pcap').textContent = capText[side];
+    avatar.textContent = name[0].toUpperCase();
+    avatar.className = 'avatar ' + side;
+    card.classList.toggle('to-move', !over && game.turn() === side);
+    if (!c) { clock.textContent = ''; continue; }
     const ms = c[side] - (side === c.running ? performance.now() - online.clockAt : 0);
-    el.textContent = fmt(ms);
-    el.classList.toggle('running', side === c.running);
-    el.classList.toggle('low', ms < 1e4);
+    clock.textContent = fmt(ms);
+    clock.classList.toggle('running', side === c.running);
+    clock.classList.toggle('low', ms < 1e4);
   }
 }, 100);
 document.getElementById('copy').onclick = () => navigator.clipboard?.writeText(shareUrl.value).then(
@@ -805,14 +979,23 @@ async function openProfile(name) {
   btn('profile').showModal();
 }
 btn('profileClose').onclick = () => btn('profile').close();
-btn('panelToggle').onclick = () => btn('panelToggle').setAttribute('aria-pressed', document.body.classList.toggle('show-panel'));
+btn('panelToggle').onclick = () => {
+  const open = document.body.classList.toggle('drawer-open');
+  btn('panelToggle').setAttribute('aria-expanded', open);
+  if (open) btn('unread').hidden = true;
+};
+addEventListener('keydown', e => { if (e.key === 'Escape' && document.body.classList.contains('drawer-open')) btn('panelToggle').click(); });
 btn('signOut').onclick = async () => { await api('/api/logout', {}); location.reload(); };
 
+// pull the camera back on tall, narrow screens so the whole board fits
+const fitCamera = () => camera.position.setLength(14.2 * Math.min(2.2, Math.max(1, 0.78 / camera.aspect)));
 addEventListener('resize', () => {
   camera.aspect = innerWidth / innerHeight;
   camera.updateProjectionMatrix();
   renderer.setSize(innerWidth, innerHeight);
+  fitCamera();
 });
+fitCamera();
 
 restart(() => { try { game.loadPgn(store.get('pgn') ?? ''); } catch {} }); // resume the autosaved game
 renderer.setAnimationLoop(() => { controls.update(); renderer.render(scene, camera); });

@@ -4,6 +4,7 @@
   "type": "module",
   "scripts": {
     "start": "node --no-warnings server.js",
+    "dev": "nodemon --no-warnings server.js",
     "test": "node --no-warnings test-rooms.mjs"
   },
   "engines": {
@@ -12,5 +13,8 @@
   "dependencies": {
     "chess.js": "1.4.0",
     "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.14"
   }
 }
