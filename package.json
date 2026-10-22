@@ -1,0 +1,16 @@
+{
+  "name": "3d-chess",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node test-rooms.mjs"
+  },
+  "engines": {
+    "node": ">=20.11"
+  },
+  "dependencies": {
+    "chess.js": "1.4.0",
+    "ws": "^8.18.0"
+  }
+}

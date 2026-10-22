@@ -19,6 +19,10 @@
   dialog { background: #2a2d33; color: #eee; border: 1px solid #666; border-radius: 12px; text-align: center; }
   dialog::backdrop { background: #0008; }
   dialog button { font-size: 36px; width: 64px; height: 64px; margin: 4px; }
+  #share { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); width: min(420px, calc(100vw - 32px)); box-sizing: border-box;
+           background: #2a2d33ee; border: 1px solid #666; border-radius: 12px; padding: 16px; text-align: center; }
+  #share input { width: 100%; box-sizing: border-box; margin: 8px 0; padding: 8px; border-radius: 8px; border: 1px solid #666; background: #1d1f24; color: #eee; font: inherit; }
+  .online .local-only { display: none; }
 </style>
 <script type="importmap">
 { "imports": {
@@ -31,18 +35,19 @@
 <body>
 <div id="hud">
   <span id="status"></span>
-  <button id="undo">Undo</button>
-  <button id="reset">New game</button>
+  <button id="online">Play a friend online</button>
+  <button id="undo" class="local-only">Undo</button>
+  <button id="reset" class="local-only">New game</button>
   <button id="flip">Flip board</button>
-  <label><input type="checkbox" id="autoflip"> Auto-flip</label>
-  <select id="mode" aria-label="Opponent">
+  <label class="local-only"><input type="checkbox" id="autoflip"> Auto-flip</label>
+  <select id="mode" class="local-only" aria-label="Opponent">
     <option value="2p">2 players</option>
     <option value="easy">vs CPU: Easy</option>
     <option value="medium">vs CPU: Medium</option>
     <option value="hard">vs CPU: Hard</option>
     <option value="max">vs CPU: Max</option>
   </select>
-  <select id="side" aria-label="Your colour">
+  <select id="side" class="local-only" aria-label="Your colour">
     <option value="w">Play White</option>
     <option value="b">Play Black</option>
   </select>
@@ -55,8 +60,13 @@
   </select>
   <label><input type="checkbox" id="sound" checked> Sound</label>
   <button id="save">Save PGN</button>
-  <button id="load">Load PGN</button>
+  <button id="load" class="local-only">Load PGN</button>
   <input type="file" id="pgnFile" accept=".pgn,text/plain" hidden>
+</div>
+<div id="share" hidden>
+  <p>Send this link to your friend. The game starts when they open it.</p>
+  <input id="shareUrl" readonly aria-label="Game link">
+  <button id="copy">Copy link</button>
 </div>
 <div id="captured"><div id="capW"></div><div id="capB"></div></div>
 <dialog id="promo">
@@ -122,10 +132,11 @@ for (let f = 0; f < 8; f++) for (let r = 0; r < 8; r++) {
 }
 
 // --- settings that survive a reload (storage can be blocked, so never let it throw) ---
-const store = {
-  get: k => { try { return localStorage.getItem(k); } catch { return null; } },
-  set: (k, v) => { try { localStorage.setItem(k, v); } catch {} },
-};
+const makeStore = area => ({
+  get: k => { try { return window[area].getItem(k); } catch { return null; } },
+  set: (k, v) => { try { window[area].setItem(k, v); } catch {} },
+});
+const store = makeStore('localStorage');
 
 // --- themes ---
 const THEMES = {
@@ -179,7 +190,7 @@ let realSet = null; // one template per piece, set once the model loads
 const makePiece = (type, color) => realSet[type + color].clone(); // clones share geometry
 
 // "Chess Set" by Riley Queen, Poly Haven, CC0. Model units are metres; one square is 0.057888 m.
-new GLTFLoader().load('models/chess_set/chess_set_1k.gltf', gltf => {
+new GLTFLoader().load('/models/chess_set/chess_set_1k.gltf', gltf => {
   const S = 1 / 0.057888, get = name => gltf.scene.getObjectByName(name);
   const NAMES = { p: 'pawn', n: 'knight', b: 'bishop', r: 'rook', q: 'queen', k: 'king' };
   realSet = {};
@@ -257,7 +268,7 @@ function flipCamera() {
 const autoflip = document.getElementById('autoflip');
 function faceSideToMove() {
   // vs CPU: always face the human; 2 players: face whoever moves if auto-flip is on
-  const facing = cpuColor() ? (cpuColor() === 'w' ? 'b' : 'w') : autoflip.checked && game.turn();
+  const facing = online ? online.color : cpuColor() ? (cpuColor() === 'w' ? 'b' : 'w') : autoflip.checked && game.turn();
   if (!facing) return;
   const wantZ = facing === 'w' ? 1 : -1; // white sits at +z
   if (Math.sign(camera.position.z) !== wantZ) return flipCamera();
@@ -269,7 +280,7 @@ const engine = new Worker(URL.createObjectURL(new Blob([`importScripts('${SF_URL
 engine.postMessage('uci');
 const LEVELS = { easy: [0, 100], medium: [8, 300], hard: [15, 800], max: [20, 2000] }; // [Skill Level 0-20, think time ms]
 const modeEl = document.getElementById('mode'), sideEl = document.getElementById('side');
-const cpuColor = () => modeEl.value === '2p' ? null : sideEl.value === 'w' ? 'b' : 'w';
+const cpuColor = () => online || modeEl.value === '2p' ? null : sideEl.value === 'w' ? 'b' : 'w';
 
 function bestMove(fen, skill, ms) {
   return new Promise(res => {
@@ -342,12 +353,19 @@ function paint() {
 function update() {
   paint();
   showCaptured();
-  store.set('pgn', game.pgn()); // autosave, restored on reload
+  if (!online) store.set('pgn', game.pgn()); // autosave, restored on reload
   const side = game.turn() === 'w' ? 'White' : 'Black';
-  statusEl.textContent =
+  let text =
     game.isCheckmate() ? `Checkmate: ${side === 'White' ? 'Black' : 'White'} wins` :
     game.isDraw() ? 'Draw' :
     `${side} to move${game.inCheck() ? ' (check!)' : ''}`;
+  if (online) {
+    const opp = online.seats[online.color === 'w' ? 'b' : 'w'];
+    text = !opp ? 'Waiting for your friend to join…'
+      : `You are ${online.color === 'w' ? 'White' : 'Black'} · ${text}${opp === 'away' ? ' · opponent disconnected' : ''}`;
+    shareEl.hidden = !!opp;
+  }
+  statusEl.textContent = text;
 }
 
 async function playMove(mv) {
@@ -364,6 +382,7 @@ async function playMove(mv) {
 
 async function onSquare(sq) {
   if (!realSet || busy || game.isGameOver() || game.turn() === cpuColor()) return;
+  if (online && (game.turn() !== online.color || !online.seats.w || !online.seats.b)) return;
   const move = targets.find(m => m.to === sq), prev = selected;
   selected = null; targets = [];
   if (move) {
@@ -371,6 +390,7 @@ async function onSquare(sq) {
     const promotion = move.promotion && await pickPromotion();
     busy = false;
     if (move.promotion && !promotion) return update();
+    if (online) send({ t: 'move', from: move.from, to: sq, promotion });
     return playMove({ from: move.from, to: sq, promotion });
   }
   const p = game.get(sq);
@@ -431,6 +451,53 @@ pgnFile.onchange = async () => {
   try { new Chess().loadPgn(text); } catch { return alert('Could not read that PGN file.'); } // validate on a scratch board first
   restart(() => game.loadPgn(text));
 };
+
+// --- online play: private 1v1 rooms on the game server (server.js) ---
+let online = null, net = null; // online = { room, color, seats } once the server seats us
+// ponytail: seat tokens are per tab, so two tabs can play each other and a refresh keeps the seat;
+// a closed tab can't reclaim its seat until accounts exist (M4)
+const seatStore = makeStore('sessionStorage');
+const shareEl = document.getElementById('share'), shareUrl = document.getElementById('shareUrl');
+const send = m => net?.readyState === 1 && net.send(JSON.stringify(m));
+const idle = () => new Promise(res => { const f = () => busy ? setTimeout(f, 50) : res(); f(); });
+
+function connect(hello) {
+  const ws = net = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws`);
+  ws.onopen = () => send(hello());
+  ws.onmessage = e => onServer(JSON.parse(e.data));
+  ws.onerror = () => { if (!online) statusEl.textContent = 'Online play needs the game server: run npm start.'; };
+  ws.onclose = () => { if (online && net === ws) setTimeout(() => connect(rejoin), 1000); }; // keep trying to get back in
+}
+const rejoin = () => ({ t: 'join', room: online.room, token: seatStore.get('seat:' + online.room) });
+
+async function onServer(m) {
+  if (m.t === 'error') { statusEl.textContent = m.msg; return; }
+  if (m.t === 'joined') {
+    seatStore.set('seat:' + m.room, m.token); // lets a refresh take the same seat back
+    online = { room: m.room, color: m.color, seats: {} };
+    history.replaceState(null, '', '/g/' + m.room);
+    shareUrl.value = location.href;
+    document.body.classList.add('online');
+    document.getElementById('online').textContent = 'Leave online game';
+  }
+  if (m.t === 'state') {
+    online.seats = m.seats;
+    await idle();
+    const remote = new Chess();
+    if (m.pgn) remote.loadPgn(m.pgn);
+    const rh = remote.history({ verbose: true }), lh = game.history();
+    const same = rh.length >= lh.length && lh.every((san, i) => san === rh[i].san);
+    if (same && rh.length === lh.length + 1) await playMove({ from: rh.at(-1).from, to: rh.at(-1).to, promotion: rh.at(-1).promotion }); // opponent's move
+    else if (!same || rh.length !== lh.length) await restart(() => remote.history().length ? game.loadPgn(m.pgn) : game.reset()); // anything else: take the server's game
+    else { update(); await faceSideToMove(); }
+  }
+}
+
+document.getElementById('online').onclick = () => online ? location.href = '/' : connect(() => ({ t: 'create' }));
+document.getElementById('copy').onclick = () => navigator.clipboard?.writeText(shareUrl.value).then(
+  () => document.getElementById('copy').textContent = 'Copied!', () => shareUrl.select());
+const linkRoom = location.pathname.match(/^\/g\/([a-z0-9]+)$/)?.[1];
+if (linkRoom) connect(() => ({ t: 'join', room: linkRoom, token: seatStore.get('seat:' + linkRoom) }));
 
 addEventListener('resize', () => {
   camera.aspect = innerWidth / innerHeight;
