@@ -16,7 +16,7 @@ Then open http://localhost:5173. It needs to be served over HTTP, not opened as 
 - Moves animate, and there is a promotion picker, an undo button, and a list of captured pieces with the material score.
 - Two players on one screen, with auto-flip so the board turns to whoever moves next.
 - A computer opponent at Easy, Medium, Hard or Max; you can play White or Black.
-- Sounds made with Web Audio, so there are no audio files, and four board themes. Both settings are remembered.
+- Sounds made with Web Audio, so there are no audio files, four board themes, and three piece sets: Classic, Neon and Bauhaus. All of these settings are remembered.
 - Save and load games as PGN files. The current game is also saved automatically and comes back after a reload.
 
 ## Debugging
