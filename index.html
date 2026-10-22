@@ -58,7 +58,13 @@
   #lobby .seeking { outline: 2px solid #7cc47f; }
   #liveList { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
   #liveList li { display: flex; justify-content: space-between; align-items: center; background: #0006; padding: 6px 10px; border-radius: 8px; }
-  @media (max-width: 640px) { #moves, #chat { display: none; } #panel { top: auto; width: 140px; } }
+  #panelToggle { display: none; }
+  @media (max-width: 640px) {
+    #panelToggle { display: inline-block; }
+    body:not(.show-panel) #moves, body:not(.show-panel) #chat { display: none; }
+    #panel { top: auto; width: 140px; }
+    body.show-panel #panel { width: auto; left: 12px; max-height: 60vh; }
+  }
 </style>
 <script type="importmap">
 { "imports": {
@@ -73,6 +79,7 @@
   <span id="status"></span>
   <button id="online">Menu</button>
   <button id="account" hidden>Sign in</button>
+  <button id="panelToggle" aria-pressed="false">Moves / Chat</button>
   <button id="resign" class="online-only" hidden>Resign</button>
   <button id="drawBtn" class="online-only" hidden>Offer draw</button>
   <button id="declineBtn" class="online-only" hidden>Decline draw</button>
@@ -473,7 +480,8 @@ function localResult() {
 }
 const currentResult = () => online ? online.result : localResult();
 // "alice (1512)" for a signed-in player, otherwise the colour
-const who = side => { const p = online?.players?.[side]; return p ? `${p.name} (${p.rating})` : NAME[side]; };
+const rated = p => `${p.name} (${p.rating}${p.provisional ? '?' : ''})`; // "?" = provisional, not enough games yet
+const who = side => { const p = online?.players?.[side]; return p ? rated(p) : NAME[side]; };
 const resultTitle = r => !r.winner ? 'Draw' : !online?.color ? `${NAME[r.winner]} wins` : r.winner === online.color ? 'You win!' : 'You lose';
 const resultReason = r => r.winner
   ? `${NAME[r.winner]} won ${{ checkmate: 'by checkmate', resignation: 'by resignation', timeout: 'on time' }[r.reason]}`
@@ -675,7 +683,7 @@ async function onServer(m) {
     Object.assign(online, { color: m.you, seats: m.seats, tc: m.tc, clock: m.clock, clockAt: performance.now(),
       result: m.result, drawOffer: m.drawOffer, rematch: m.rematch, watchers: m.watchers, players: m.players });
     const mine = m.you && m.players[m.you];
-    if (mine && mine.name === me?.name && mine.rating !== me.rating) { me.rating = mine.rating; btn('account').textContent = `${me.name} (${me.rating})`; }
+    if (mine && mine.name === me?.name) { Object.assign(me, mine); btn('account').textContent = rated(me); }
     await idle();
     const remote = new Chess();
     if (m.pgn) remote.loadPgn(m.pgn);
@@ -697,7 +705,7 @@ function showLobbyGames(games) {
   btn('liveSection').hidden = !games.length;
   btn('liveList').replaceChildren(...games.map(g => {
     const li = document.createElement('li'), watch = document.createElement('button');
-    const name = c => g.players[c] ? `${g.players[c].name} (${g.players[c].rating})` : 'Guest';
+    const name = c => g.players[c] ? rated(g.players[c]) : 'Guest';
     li.textContent = `${name('w')} vs ${name('b')} · ${g.tc === 'none' ? 'no clock' : g.tc} · move ${Math.ceil(g.moves / 2) || 1}`;
     watch.textContent = 'Watch';
     watch.onclick = () => location.href = '/g/' + g.id;
@@ -759,7 +767,7 @@ api('/api/me').then(r => {
   if (!r.ok) return; // no game server (static hosting): no accounts
   me = r.user;
   btn('account').hidden = false;
-  btn('account').textContent = me ? `${me.name} (${me.rating})` : 'Sign in';
+  btn('account').textContent = me ? rated(me) : 'Sign in';
 }, () => {});
 btn('account').onclick = () => me ? openProfile(me.name) : (btn('authError').textContent = '', btn('auth').showModal());
 btn('authCancel').onclick = () => btn('auth').close();
@@ -773,7 +781,7 @@ async function openProfile(name) {
   const p = await api('/api/users/' + encodeURIComponent(name));
   if (!p.ok) return;
   btn('profileName').textContent = p.name;
-  btn('profileRating').textContent = `Rating ${p.rating}`;
+  btn('profileRating').textContent = `Rating ${p.rating}${p.provisional ? '? (provisional until a few more rated games)' : ''}`;
   btn('signOut').hidden = name !== me?.name;
   btn('profileGames').replaceChildren(...(p.games.length ? p.games.map(g => {
     const mine = g.white === p.name ? 'w' : 'b', opp = (mine === 'w' ? g.black : g.white) ?? 'Guest';
@@ -797,6 +805,7 @@ async function openProfile(name) {
   btn('profile').showModal();
 }
 btn('profileClose').onclick = () => btn('profile').close();
+btn('panelToggle').onclick = () => btn('panelToggle').setAttribute('aria-pressed', document.body.classList.toggle('show-panel'));
 btn('signOut').onclick = async () => { await api('/api/logout', {}); location.reload(); };
 
 addEventListener('resize', () => {

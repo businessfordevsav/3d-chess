@@ -1,11 +1,29 @@
 // Smoke test for the room server: npm test
 import { spawn } from 'node:child_process';
 import assert from 'node:assert/strict';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { rmSync } from 'node:fs';
+import { DatabaseSync } from 'node:sqlite';
 import WebSocket from 'ws';
+import { glicko2 } from './glicko2.js';
 
-const PORT = 3999, BASE = `http://localhost:${PORT}`;
-const srv = spawn(process.execPath, ['server.js'], { cwd: import.meta.dirname, env: { ...process.env, PORT, DB_FILE: ':memory:' }, stdio: ['ignore', 'pipe', 'inherit'] });
-await new Promise(r => srv.stdout.once('data', r));
+// the worked example from Glickman's Glicko-2 paper
+const ex = glicko2({ rating: 1500, rd: 200, vol: 0.06 }, [[{ rating: 1400, rd: 30 }, 1], [{ rating: 1550, rd: 100 }, 0], [{ rating: 1700, rd: 300 }, 0]]);
+assert.deepEqual([ex.rating.toFixed(2), ex.rd.toFixed(2), ex.vol.toFixed(5)], ['1464.05', '151.52', '0.06000']);
+
+const PORT = 3999, BASE = `http://localhost:${PORT}`, DB_FILE = join(tmpdir(), `chess-test-${process.pid}.db`);
+let srv;
+async function startServer() {
+  srv = spawn(process.execPath, ['--no-warnings', 'server.js'], { cwd: import.meta.dirname, env: { ...process.env, PORT, DB_FILE }, stdio: ['ignore', 'pipe', 'inherit'] });
+  await new Promise(r => srv.stdout.once('data', r));
+}
+async function stopServer() {
+  const exited = new Promise(r => srv.once('exit', r));
+  srv.kill();
+  await exited;
+}
+await startServer();
 
 function client(cookie) {
   const ws = new WebSocket(`ws://localhost:${PORT}/ws`, cookie ? { headers: { cookie } } : {}), inbox = [], waiting = [];
@@ -160,7 +178,7 @@ try {
   const login = await post('/api/login', { name: 'alice', password: 'correct horse' });
   assert.equal((await login.json()).user.name, 'alice');
   const me = await (await fetch(BASE + '/api/me', { headers: { cookie: alice } })).json();
-  assert.deepEqual(me.user, { id: 1, name: 'alice', rating: 1500 });
+  assert.deepEqual(me.user, { id: 1, name: 'alice', rating: 1500, provisional: true });
 
   // a rated game between two accounts: names in state, Elo after the result, saved to both profiles
   const ua = client(alice), ub = client(bob);
@@ -179,10 +197,11 @@ try {
     [final] = [await ua.next('state'), await ub.next('state')];
   }
   assert.equal(final.result.reason, 'checkmate');
-  assert.deepEqual(final.result.changes, { w: -10, b: 10 });
+  assert.deepEqual(final.result.changes, { w: -162, b: 162 }); // Glicko-2: two new, uncertain ratings move a lot
   const loserName = st.you === 'w' ? 'bob' : 'alice';
   const prof = await (await fetch(BASE + '/api/users/' + loserName)).json();
-  assert.equal(prof.rating, 1490);
+  assert.equal(prof.rating, 1338);
+  assert.equal(prof.provisional, true);
   assert.equal(prof.games.length, 1);
   assert.equal(prof.games[0].reason, 'checkmate');
   const saved = await (await fetch(BASE + '/api/games/' + prof.games[0].id)).json();
@@ -205,6 +224,55 @@ try {
   for (const x of [ua2, ub]) x.ws.close();
   evil.close();
 
+  // over HTTPS (here: a proxy saying so) the session cookie is marked Secure
+  const viaHttps = await fetch(BASE + '/api/signup', { method: 'POST', headers: { 'content-type': 'application/json', 'x-forwarded-proto': 'https' },
+    body: JSON.stringify({ name: 'dave', password: 'correct horse' }) });
+  assert.match(viaHttps.headers.get('set-cookie'), /; Secure/);
+  assert.doesNotMatch(alice, /Secure/);
+
+  {
+  // games in progress survive a server restart: same moves, same seat, clock paused while down
+  const q1 = client(), q2 = client();
+  q1.send({ t: 'create', tc: '10+0' });
+  const live = await q1.next('joined');
+  await q1.next('state');
+  q2.send({ t: 'join', room: live.room });
+  const live2 = await q2.next('joined');
+  const before = await q2.next('state');
+  await q1.next('state');
+  const [lw, lwTok] = before.you === 'w' ? [q2, live2.token] : [q1, live.token];
+  lw.send({ t: 'move', from: 'd2', to: 'd4' });
+  const moved = await lw.next('state');
+  q1.ws.close(); q2.ws.close();
+  await stopServer();
+
+  // also plant two games whose side to move has 50 ms left, to check both ways of losing on time (FIDE 6.9)
+  const plant = (id, fen) => new DatabaseSync(DB_FILE).prepare('INSERT INTO live_rooms VALUES (?, ?, ?)').run(id, JSON.stringify({
+    tc: '1+0', pgn: `[SetUp "1"]\n[FEN "${fen}"]\n\n*`, seats: { w: { token: 't1', userId: null }, b: { token: 't2', userId: null } },
+    clock: { w: 50, b: 6e4, inc: 0, running: 'w', since: Date.now() }, result: null, drawOffer: null, rematch: [], chat: [], savedAt: Date.now() }), Date.now());
+  plant('bare0001', '4k3/8/8/8/8/8/8/4K2Q w - - 0 1');  // Black has only a king: White's flag is a draw
+  plant('queen001', '3qk3/8/8/8/8/8/8/4K3 w - - 0 1');  // Black has a queen: White loses on time
+  await startServer();
+
+  const back = client();
+  back.send({ t: 'join', room: live.room, token: lwTok });
+  await back.next('joined');
+  const resumed = await back.next('state');
+  assert.equal(moves(resumed.pgn), '1. d4');
+  assert.equal(resumed.you, before.you);
+  assert.equal(resumed.clock.running, 'b');
+  assert.ok(Math.abs(resumed.clock.b - moved.clock.b) < 1000, 'clock paused during the restart');
+  back.ws.close();
+  await new Promise(r => setTimeout(r, 300)); // let the planted clocks run out
+  for (const [id, result] of [['bare0001', { winner: null, reason: 'timeout vs insufficient material' }], ['queen001', { winner: 'b', reason: 'timeout' }]]) {
+    const w = client();
+    w.send({ t: 'join', room: id, token: 't1' });
+    await w.next('joined');
+    assert.deepEqual((await w.next('state')).result, result, id);
+    w.ws.close();
+  }
+  }
+
   // only the page and the model folder are served
   assert.equal((await fetch(BASE + '/')).status, 200);
   assert.equal((await fetch(BASE + '/g/' + ja.room)).status, 200);
@@ -215,4 +283,5 @@ try {
   for (const x of [a, b2, c, lob, s1, s2]) x.ws.close();
 } finally {
   srv.kill();
+  for (const f of [DB_FILE, DB_FILE + '-wal', DB_FILE + '-shm']) rmSync(f, { force: true });
 }

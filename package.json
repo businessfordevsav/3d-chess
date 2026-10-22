@@ -3,8 +3,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "start": "node server.js",
-    "test": "node test-rooms.mjs"
+    "start": "node --no-warnings server.js",
+    "test": "node --no-warnings test-rooms.mjs"
   },
   "engines": {
     "node": ">=22.13"

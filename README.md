@@ -9,9 +9,9 @@ npm install
 npm start
 ```
 
-Then open http://localhost:3000. The Node server (`server.js`) serves the game, runs the lobby and game rooms, and stores accounts and finished games in SQLite at `data/chess.db` (Node's built-in `node:sqlite`, so Node 22.13 or newer; set `DB_FILE` to use another file). Passwords are hashed with scrypt; sessions are HttpOnly cookies. Local play (two players on one screen, or against the computer) also works from any static server, such as `python3 -m http.server 5173 --bind 127.0.0.1 --directory .`.
+Then open http://localhost:3000. The Node server (`server.js`) serves the game, runs the lobby and game rooms, and stores accounts and finished games in SQLite at `data/chess.db` (Node's built-in `node:sqlite`, so Node 22.13 or newer; set `DB_FILE` to use another file). Passwords are hashed with scrypt; sessions are HttpOnly cookies, marked Secure when served over HTTPS (directly or behind a proxy that sets `X-Forwarded-Proto`). Local play (two players on one screen, or against the computer) also works from any static server, such as `python3 -m http.server 5173 --bind 127.0.0.1 --directory .`.
 
-`npm test` starts a server on port 3999 and checks the room protocol and accounts: sign-up and sign-in, rated games and profiles, joining, spectators, chat, matchmaking, turn order, illegal moves, clocks, draw offers, rematch, resigning, reconnecting, and which files get served.
+`npm test` starts a server on port 3999 and checks the Glicko-2 maths against the paper's worked example, the room protocol and accounts: sign-up and sign-in, rated games and profiles, joining, spectators, chat, matchmaking, turn order, illegal moves, clocks, draw offers, rematch, resigning, reconnecting, resuming games after a restart, losing on time (including the draw when the opponent can't mate), and which files get served.
 
 ## Features
 
@@ -21,7 +21,7 @@ Then open http://localhost:3000. The Node server (`server.js`) serves the game, 
 - Play a friend online: **Play a friend online** makes a private room with a link like `/g/1a2b3c4d`. Your friend opens it and you each get a colour. The server checks every move, and refreshing the page puts you back in your seat.
 - A menu at `/` with quick pairing against a random opponent (one queue per time control), private game links, local play, and a list of live games anyone can watch. Players can chat in a game; spectators can read the chat.
 - Online games have clocks (1+0, 3+2, 5+3, 10+0, 15+10, or no clock), resigning, draw offers, a rematch with colours swapped, a move list, and a game-over screen. The server keeps the time, so a slow or tampered page can't stop the clock.
-- Accounts (optional): sign up with a name and password, keep an Elo rating (games between two signed-in players are rated), and see your game history with replays. Signed-in players get their seat back from any tab. Finished games are saved with full PGN headers.
+- Accounts (optional): sign up with a name and password, keep a Glicko-2 rating, the system lichess uses, where a "?" marks a provisional rating (games between two signed-in players are rated), and see your game history with replays. Signed-in players get their seat back from any tab. Finished games are saved with full PGN headers, and games in progress survive a server restart (their clocks pause while it is down).
 - A computer opponent at Easy, Medium, Hard or Max; you can play White or Black.
 - Realistic 3D-model pieces, a real marble board plus four colour boards, and sounds made with Web Audio, so there are no audio files. Settings are remembered.
 - Save and load games as PGN files. The current game is also saved automatically and comes back after a reload.
