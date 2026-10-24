@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { rmSync } from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
 import WebSocket from 'ws';
+import { randomBytes, createHash } from 'node:crypto';
 import { glicko2 } from './glicko2.js';
 
 // the worked example from Glickman's Glicko-2 paper
@@ -28,7 +29,18 @@ await startServer();
 // each connection gets its own address (the server trusts X-Forwarded-For here): rated games need
 // the two players on different networks
 let nextIp = 0;
-function client(cookie) {
+// playing needs an account, so a client without a cookie signs in as a fresh guest account; written straight
+// to the database (WAL lets the server read it at once) so client() can stay synchronous
+let guestDb, guestSeq = 0;
+function guestCookie() {
+  if (!guestDb) { guestDb = new DatabaseSync(DB_FILE); guestDb.exec('PRAGMA busy_timeout = 5000'); }
+  const raw = randomBytes(32).toString('hex'), now = Date.now();
+  const { lastInsertRowid } = guestDb.prepare('INSERT INTO users (name, hash, created, guest) VALUES (?, ?, ?, 1)').run(`Guest_t${process.pid}_${guestSeq++}`, '', now);
+  guestDb.prepare('INSERT INTO sessions (token, user_id, created, ua, last_seen) VALUES (?, ?, ?, ?, ?)')
+    .run(createHash('sha256').update(raw).digest('hex'), Number(lastInsertRowid), now, null, now);
+  return `sid=${raw}`;
+}
+function client(cookie = guestCookie()) {
   const headers = { 'x-forwarded-for': `10.1.${nextIp >> 8}.${nextIp++ & 255}`, ...(cookie ? { cookie } : {}) };
   const ws = new WebSocket(`ws://localhost:${PORT}/ws`, { headers }), inbox = [], waiting = [];
   ws.on('message', d => {
@@ -40,9 +52,9 @@ function client(cookie) {
     return i >= 0 ? Promise.resolve(inbox.splice(i, 1)[0]) : new Promise(r => waiting.push([t, r]));
   };
   const opened = new Promise(r => ws.once('open', r));
-  return { ws, next, send: async m => { await opened; ws.send(JSON.stringify(m)); } };
+  return { ws, next, cookie, send: async m => { await opened; ws.send(JSON.stringify(m)); } };
 }
-const moves = pgn => pgn.replace(/\[.*?\]\s*/g, '').replace(/\s*\*$/, '').trim(); // just the moves
+const moves = pgn => pgn.replace(/\[.*?\]\s*/g, '').replace(/\s*(\*|1-0|0-1|1\/2-1\/2)$/, '').trim(); // just the moves
 
 try {
   // create, then a friend joins and gets the other colour
@@ -94,14 +106,15 @@ try {
   for (const x of [a, b, c]) {
     let log;
     do log = (await x.next('chat')).log; while (!log.length); // skip the history sent on joining
-    assert.deepEqual(log, [{ from: 'w', name: null, text: 'good luck!' }]); // guests have no name
+    assert.deepEqual(log.map(m => [m.from, m.text]), [['w', 'good luck!']]);
+    assert.match(log[0].name, /^Guest_/); // guest accounts show their Guest_ name
   }
 
   // a player who drops can come back to the same seat with their token
   b.ws.close();
   assert.equal((await a.next('state')).seats[jb.color], 'away');
   await c.next('state');
-  const b2 = client();
+  const b2 = client(b.cookie); // the same guest account comes back
   b2.send({ t: 'join', room: ja.room, token: jb.token });
   await b2.next('joined');
   const back = await b2.next('state');
@@ -182,7 +195,7 @@ try {
   const login = await post('/api/login', { name: 'alice', password: 'correct horse' });
   assert.equal((await login.json()).user.name, 'alice');
   const me = await (await fetch(BASE + '/api/me', { headers: { cookie: alice } })).json();
-  assert.deepEqual(me.user, { id: 1, name: 'alice', rating: 1500, provisional: true, guest: false, hasEmail: true, emailVerified: false });
+  assert.deepEqual({ ...me.user, id: 0 }, { id: 0, name: 'alice', rating: 1500, provisional: true, guest: false, hasEmail: true, emailVerified: false });
 
   // a rated game between two accounts: names in state, Elo after the result, saved to both profiles
   const ua = client(alice), ub = client(bob);
@@ -246,7 +259,8 @@ try {
   await q1.next('state');
   const [lw, lwTok] = before.you === 'w' ? [q2, live2.token] : [q1, live.token];
   lw.send({ t: 'move', from: 'd2', to: 'd4' });
-  const moved = await lw.next('state');
+  let moved; // skip any state queued before the move
+  do moved = await lw.next('state'); while (!moved.pgn.includes('d4'));
   q1.ws.close(); q2.ws.close();
   await stopServer();
 
@@ -258,7 +272,7 @@ try {
   plant('queen001', '3qk3/8/8/8/8/8/8/4K3 w - - 0 1');  // Black has a queen: White loses on time
   await startServer();
 
-  const back = client();
+  const back = client(lw.cookie);
   back.send({ t: 'join', room: live.room, token: lwTok });
   await back.next('joined');
   const resumed = await back.next('state');
