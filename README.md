@@ -15,6 +15,10 @@ Then open http://localhost:3000. The Node server (`server.js`) serves the game, 
 
 `npm test` also runs `test-security.mjs` on port 3998: chess rules enforced by the server (castling, en passant, promotion, check, draws), an adversarial scenario matrix (double moves, races, replays, forged results, spectators acting, late moves, malformed messages, restarts), and regressions for the security fixes.
 
+### Deploying
+
+The site runs on the shared VPS behind its Traefik: `Dockerfile`, `docker-compose.yml` (the container, with the Traefik labels for `DOMAIN`) and `deploy/` (deploy and backup scripts). [DEPLOY.md](DEPLOY.md) covers DNS, settings, deploying, backups, email, Google sign-in, and what to do after launch. Production settings are listed in `.env.example`. `GET /healthz` answers `ok` for monitors.
+
 ### Browser libraries (`vendor/`)
 
 three.js, chess.js and Stockfish are copied from `node_modules` into `vendor/` (committed), so the site serves its own scripts and its Content Security Policy allows scripts only from itself. Their versions are pinned in `package.json` and checked against `package-lock.json`'s integrity hashes on install. After changing one, run:

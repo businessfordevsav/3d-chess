@@ -606,6 +606,7 @@ try {
     assert.equal((await fetch(BASE + '/g/0123456789abcdef')).headers.get('x-robots-tag'), 'noindex, nofollow');
     assert.equal((await fetch(BASE + '/')).headers.get('x-robots-tag'), null, 'the home page must stay indexable');
     assert.equal((await fetch(BASE + '/api/me')).headers.get('x-robots-tag'), 'noindex');
+    assert.equal(await (await fetch(BASE + '/healthz')).text(), 'ok\n', 'health check for Docker and monitors');
   });
   await check('speed: text files are compressed and cached; repeat visits get 304 Not Modified', async () => {
     const lib = '/vendor/three/build/three.module.js';

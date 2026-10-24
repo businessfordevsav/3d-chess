@@ -1,0 +1,42 @@
+# Production on the shared VPS: the game server behind the box's Traefik (/docker/traefik), which routes DOMAIN
+# here and gets its HTTPS certificate. Nothing is shared with the other projects: own container, network and data.
+# Settings come from .env in /opt/3d-chess (copy .env.example). Start or update: docker compose up -d --build
+name: 3d-chess
+
+services:
+  app:
+    build: .
+    container_name: 3d-chess
+    restart: unless-stopped
+    mem_limit: 512m # like the box's other apps: a leak or a flood can't starve them
+    cpus: 1.0
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+    env_file: .env
+    environment:
+      TRUST_PROXY: "1" # Traefik is the only way in, and it replaces any X-Forwarded-For a client sends
+    volumes:
+      - chess-data:/data
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.chess.rule=Host(`${DOMAIN:?set DOMAIN in .env}`)"
+      - "traefik.http.routers.chess.entrypoints=websecure"
+      - "traefik.http.routers.chess.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.chess.middlewares=chess-hsts"
+      - "traefik.http.services.chess.loadbalancer.server.port=3000"
+      # browsers remember to use HTTPS for a year
+      - "traefik.http.middlewares.chess-hsts.headers.stsSeconds=31536000"
+      - "traefik.http.middlewares.chess-hsts.headers.stsIncludeSubdomains=true"
+      # www goes to the bare domain, path kept (needs a www DNS record; see DEPLOY.md)
+      - "traefik.http.routers.chess-www.rule=Host(`www.${DOMAIN}`)"
+      - "traefik.http.routers.chess-www.entrypoints=websecure"
+      - "traefik.http.routers.chess-www.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.chess-www.middlewares=chess-www"
+      - "traefik.http.routers.chess-www.service=chess"
+      - "traefik.http.middlewares.chess-www.redirectregex.regex=^https://www\\.[^/]+/(.*)"
+      - "traefik.http.middlewares.chess-www.redirectregex.replacement=https://${DOMAIN}/$${1}"
+      - "traefik.http.middlewares.chess-www.redirectregex.permanent=true"
+
+volumes:
+  chess-data:

@@ -52,7 +52,7 @@ srv.stdout.on('data', d => {
   while ((i = buf.indexOf('\n')) >= 0) {
     const line = buf.slice(0, i); buf = buf.slice(i + 1);
     if (line.startsWith('MAIL ')) outbox.push(JSON.parse(line.slice(5)));
-    if (line.includes('3D Chess on')) started();
+    if (line.includes('3D Chess listening')) started();
   }
 });
 await ready;

@@ -162,6 +162,7 @@ const mailer = process.env.SMTP_HOST && nodemailer.createTransport({
   auth: process.env.SMTP_USER ? { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS } : undefined,
 });
 if (!mailer && process.env.NODE_ENV === 'production') console.warn('warning: SMTP_HOST is not set, so emails (including reset links) are written to the log');
+if (process.env.NODE_ENV === 'production' && !/^https:\/\//.test(APP_URL)) console.warn(`warning: APP_URL is ${APP_URL}; set it to the site's https:// address for links, sign-in and SEO`);
 async function sendMail(to, subject, text) {
   try {
     if (mailer) await mailer.sendMail({ from: process.env.MAIL_FROM || process.env.SMTP_USER, to, subject, text });
@@ -577,6 +578,9 @@ const server = createServer(async (req, res) => {
     res.setHeader('X-Robots-Tag', 'noindex');
     return google(req, res, new URL(req.url, 'http://x')).catch(() => redirect(res, '/?auth=failed'));
   }
+  // for Docker's HEALTHCHECK and uptime monitors: up, and the database answers
+  if (path === '/healthz') return res.writeHead(200, { 'Content-Type': TYPES['.txt'], 'Cache-Control': 'no-store', 'X-Robots-Tag': 'noindex' })
+    .end(db.prepare('SELECT 1 AS ok').get().ok ? 'ok\n' : 'db\n');
   if (path === '/robots.txt') return res.writeHead(200, { 'Content-Type': TYPES['.txt'], 'Cache-Control': 'public, max-age=3600' }).end(robotsTxt());
   // AdSense's authorized-seller file; f08c47fec0942fa0 is Google's own fixed id
   if (path === '/ads.txt' && ADS) return res.writeHead(200, { 'Content-Type': TYPES['.txt'], 'Cache-Control': 'public, max-age=3600' })
@@ -1005,4 +1009,11 @@ setInterval(sweep, 6e4).unref();
 
 restoreRooms();
 
-server.listen(PORT, () => console.log(`3D Chess on http://localhost:${PORT}`));
+server.listen(PORT, () => console.log(`3D Chess listening on port ${PORT} (${APP_URL})`));
+// docker stop / systemd send SIGTERM: stop taking requests, close the database cleanly (rooms are already saved), exit
+for (const sig of ['SIGTERM', 'SIGINT']) process.once(sig, () => {
+  server.close();
+  for (const ws of wss.clients) ws.close(1012, 'server restarting'); // 1012: clients reconnect
+  db.close();
+  process.exit(0);
+});
