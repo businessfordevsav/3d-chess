@@ -7,6 +7,7 @@ import { join } from 'node:path';
 import { rmSync } from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
 import WebSocket from 'ws';
+import { randomBytes, createHash } from 'node:crypto';
 
 const PORT = 3998, BASE = `http://localhost:${PORT}`, DB_FILE = join(tmpdir(), `chess-security-${process.pid}.db`);
 let srv;
@@ -26,7 +27,18 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
 let ipSeq = 0;
 const freshIp = () => `10.0.${ipSeq >> 8}.${ipSeq++ & 255}`;
 
-function client({ cookie, ip = freshIp(), origin } = {}) {
+// playing needs an account, so a client without a cookie signs in as a fresh guest account; written straight
+// to the database (WAL lets the server read it at once) so client() can stay synchronous
+let guestDb, guestSeq = 0;
+function guestCookie() {
+  if (!guestDb) { guestDb = new DatabaseSync(DB_FILE); guestDb.exec('PRAGMA busy_timeout = 5000'); }
+  const raw = randomBytes(32).toString('hex'), now = Date.now();
+  const { lastInsertRowid } = guestDb.prepare('INSERT INTO users (name, hash, created, guest) VALUES (?, ?, ?, 1)').run(`Guest_t${process.pid}_${guestSeq++}`, '', now);
+  guestDb.prepare('INSERT INTO sessions (token, user_id, created, ua, last_seen) VALUES (?, ?, ?, ?, ?)')
+    .run(createHash('sha256').update(raw).digest('hex'), Number(lastInsertRowid), now, null, now);
+  return `sid=${raw}`;
+}
+function client({ cookie = guestCookie(), ip = freshIp(), origin } = {}) {
   const headers = { 'x-forwarded-for': ip, ...(cookie ? { cookie } : {}), ...(origin ? { origin } : {}) };
   const ws = new WebSocket(`ws://localhost:${PORT}/ws`, { headers });
   const inbox = [], all = [], waiting = [];
@@ -40,7 +52,7 @@ function client({ cookie, ip = freshIp(), origin } = {}) {
   const opened = new Promise(r => ws.once('open', r));
   const closed = new Promise(r => ws.once('close', code => r(code)));
   return {
-    ws, all, opened, closed, ip,
+    ws, all, opened, closed, ip, cookie,
     next(t, ms = 3000) {
       const i = inbox.findIndex(m => m.t === t);
       if (i >= 0) return Promise.resolve(inbox.splice(i, 1)[0]);
@@ -263,7 +275,7 @@ try {
     await play(g, 'w', 'e2', 'e4');
     g.w.ws.send(JSON.stringify({ t: 'move', from: 'e2', to: 'e4' }));
     g.w.close();
-    const again = client();
+    const again = client({ cookie: g.w.cookie });
     again.send({ t: 'join', room: g.room, token: g.tokens.w });
     await again.next('joined');
     await again.next('state');
@@ -303,7 +315,7 @@ try {
     const before = g.b.last('state').clock.b;
     g.b.close();
     await sleep(600);
-    const back = client();
+    const back = client({ cookie: g.b.cookie });
     back.send({ t: 'join', room: g.room, token: g.tokens.b });
     await back.next('joined');
     const s = await back.next('state');
@@ -552,8 +564,8 @@ try {
     assert.doesNotMatch(scriptSrc, /unsafe-inline|unsafe-eval|https?:|blob:|\*/, `script-src too loose: ${scriptSrc}`);
     // the hashes must match the page's inline scripts exactly, or the browser would block them
     const { createHash } = await import('node:crypto');
-    const want = [...html.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/g)].filter(m => m[1].trim())
-      .map(m => `'sha256-${createHash('sha256').update(m[1]).digest('base64')}'`);
+    const want = [...html.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script>/g)].filter(m => m[2].trim() && !m[1].includes('ld+json')) // JSON-LD doesn't run
+      .map(m => `'sha256-${createHash('sha256').update(m[2]).digest('base64')}'`);
     assert.equal(want.length, 2, 'expected the import map and the module script');
     for (const h of want) assert.ok(scriptSrc.includes(h), `missing hash ${h}`);
     assert.doesNotMatch(html, /cdn\.jsdelivr|cdnjs|unpkg/, 'the page still references a script CDN');
@@ -562,6 +574,107 @@ try {
       assert.match((await fetch(BASE + p)).headers.get('content-type'), /text\/javascript/, p);
     for (const p of ['/vendor/../server.js', '/vendor/%2e%2e/package.json', '/vendor/', '/node_modules/ws/package.json'])
       assert.equal((await fetch(BASE + p)).status, 404, p);
+  });
+  await check('SEO: title, description, canonical, social cards and structured data, with absolute URLs', async () => {
+    const html = await (await fetch(BASE + '/')).text();
+    assert.match(html, /<title>3D Chess – [^<]{10,}<\/title>/);
+    const meta = (attr, key) => html.match(new RegExp(`<meta ${attr}="${key}" content="([^"]*)"`))?.[1];
+    assert.ok(meta('name', 'description')?.length >= 70 && meta('name', 'description').length <= 160, 'description length');
+    assert.equal(html.match(/<link rel="canonical" href="([^"]*)"/)?.[1], `${BASE}/`);
+    for (const k of ['og:title', 'og:description', 'og:url', 'og:image', 'og:type']) assert.ok(meta('property', k), k);
+    assert.equal(meta('property', 'og:image'), `${BASE}/og-image.jpg`);
+    assert.equal(meta('name', 'twitter:card'), 'summary_large_image');
+    assert.doesNotMatch(html, /__APP_URL__/, 'unfilled placeholder');
+    const ld = JSON.parse(html.match(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/)[1]);
+    assert.deepEqual([ld.name, ld.url, ld.offers.price], ['3D Chess', `${BASE}/`, '0']);
+    assert.match(html, /<noscript>[\s\S]*<h1/, 'a text fallback without JavaScript');
+    const og = await fetch(BASE + '/og-image.jpg');
+    assert.deepEqual([og.status, og.headers.get('content-type')], [200, 'image/jpeg']);
+  });
+  await check('SEO: robots.txt, sitemap.xml, manifest and icons; private game links are noindex', async () => {
+    const robots = await (await fetch(BASE + '/robots.txt')).text();
+    assert.match(robots, /^User-agent: \*$/m);
+    assert.match(robots, /^Disallow: \/api\/$/m);
+    assert.match(robots, new RegExp(`^Sitemap: ${BASE}/sitemap.xml$`, 'm'));
+    const sitemap = await fetch(BASE + '/sitemap.xml');
+    assert.match(sitemap.headers.get('content-type'), /xml/);
+    assert.match(await sitemap.text(), new RegExp(`<loc>${BASE}/</loc>`));
+    const manifest = await (await fetch(BASE + '/site.webmanifest')).json();
+    assert.equal(manifest.name, '3D Chess');
+    for (const icon of manifest.icons) assert.equal((await fetch(BASE + icon.src)).status, 200, icon.src);
+    assert.equal((await fetch(BASE + '/apple-touch-icon.png')).headers.get('content-type'), 'image/png');
+    assert.equal((await fetch(BASE + '/g/0123456789abcdef')).headers.get('x-robots-tag'), 'noindex, nofollow');
+    assert.equal((await fetch(BASE + '/')).headers.get('x-robots-tag'), null, 'the home page must stay indexable');
+    assert.equal((await fetch(BASE + '/api/me')).headers.get('x-robots-tag'), 'noindex');
+  });
+  await check('speed: text files are compressed and cached; repeat visits get 304 Not Modified', async () => {
+    const lib = '/vendor/three/build/three.module.js';
+    const plain = await fetch(BASE + lib, { headers: { 'accept-encoding': 'identity' } });
+    const size = Number(plain.headers.get('content-length'));
+    const br = await fetch(BASE + lib, { headers: { 'accept-encoding': 'gzip, deflate, br' } });
+    assert.equal(br.headers.get('content-encoding'), 'br');
+    assert.ok(Number(br.headers.get('content-length')) < size / 3, `brotli ${br.headers.get('content-length')} of ${size}`);
+    const gz = await fetch(BASE + lib, { headers: { 'accept-encoding': 'gzip' } });
+    assert.equal(gz.headers.get('content-encoding'), 'gzip');
+    assert.equal(br.headers.get('vary'), 'Accept-Encoding');
+    assert.equal((await fetch(BASE + '/og-image.jpg', { headers: { 'accept-encoding': 'br' } })).headers.get('content-encoding'), null, 'images are not re-compressed');
+    assert.match(br.headers.get('cache-control'), /max-age=86400/);
+    assert.equal((await fetch(BASE + '/')).headers.get('cache-control'), 'no-cache');
+    const again = await fetch(BASE + lib, { headers: { 'if-none-match': plain.headers.get('etag') } });
+    assert.equal(again.status, 304);
+    // the compressed page still matches its CSP hashes (the browser checks the decompressed text)
+    assert.equal((await fetch(BASE + '/', { headers: { 'accept-encoding': 'br' } })).headers.get('content-encoding'), 'br');
+  });
+  await check('refresh: a 304 for the page keeps its script hashes, or the browser would block the page\'s own scripts', async () => {
+    const first = await fetch(BASE + '/');
+    const again = await fetch(BASE + '/', { headers: { 'if-none-match': first.headers.get('etag') } });
+    assert.equal(again.status, 304);
+    assert.equal(again.headers.get('content-security-policy'), first.headers.get('content-security-policy'));
+    assert.match(again.headers.get('content-security-policy'), /'sha256-/);
+  });
+  await check('playing needs an account: without one you can only watch', async () => {
+    const anon = client({ cookie: '' });
+    anon.send({ t: 'seek', tc: '3+2' });
+    assert.match((await anon.next('error')).msg, /Sign in or continue as a guest/);
+    anon.send({ t: 'create', tc: '3+2' });
+    assert.match((await anon.next('error')).msg, /Sign in/);
+    const host = client();
+    host.send({ t: 'create', tc: 'none' });
+    const { room } = await host.next('joined');
+    anon.send({ t: 'join', room });
+    assert.equal((await anon.next('joined')).token, null, 'took the free seat without an account');
+    assert.equal((await anon.next('state')).you, null);
+    const guest = client(); // a guest account may play
+    guest.send({ t: 'join', room });
+    await guest.next('joined');
+    assert.equal(typeof (await guest.next('state')).you, 'string');
+    closeAll({ w: anon, b: host }, { w: guest });
+  });
+  await check('pages: how to play, about, privacy, terms, leaderboard and profiles are indexable HTML with no scripts', async () => {
+    for (const p of ['/how-to-play', '/about', '/privacy', '/terms', '/leaderboard']) {
+      const r = await fetch(BASE + p), html = await r.text();
+      assert.equal(r.status, 200, p);
+      assert.equal(r.headers.get('x-robots-tag'), null, `${p} must stay indexable`);
+      assert.equal(html.match(/<link rel="canonical" href="([^"]*)"/)?.[1], BASE + p);
+      assert.match(html, /<title>[^<]+ – 3D Chess<\/title>/);
+      assert.doesNotMatch(html, /<script/i, `${p} needs no script, so the default CSP covers it`);
+    }
+    await signup('Pia_Plays');
+    const page = await fetch(BASE + '/u/Pia_Plays');
+    assert.equal(page.status, 200);
+    assert.match(await page.text(), /<h1>Pia_Plays<\/h1>/);
+    const lower = await fetch(BASE + '/u/pia_plays', { redirect: 'manual' });
+    assert.deepEqual([lower.status, lower.headers.get('location')], [301, '/u/Pia_Plays']);
+    const guest = await (await post('/api/guest', {})).json();
+    const g = await fetch(BASE + '/u/' + guest.user.name);
+    assert.equal(g.headers.get('x-robots-tag'), 'noindex', 'guest profiles stay out of search');
+    assert.doesNotMatch(await (await fetch(BASE + '/leaderboard')).text(), new RegExp(guest.user.name), 'guests are not ranked');
+    const missing = await fetch(BASE + '/u/nobody_at_all');
+    assert.deepEqual([missing.status, missing.headers.get('x-robots-tag')], [404, 'noindex']);
+    assert.match(missing.headers.get('content-type'), /html/);
+    const sitemap = await (await fetch(BASE + '/sitemap.xml')).text();
+    for (const p of ['/how-to-play', '/about', '/privacy', '/terms', '/leaderboard']) assert.match(sitemap, new RegExp(`<loc>${BASE}${p}</loc>`));
+    assert.doesNotMatch(sitemap, /Pia_Plays/, 'players appear in the sitemap only after a rated game');
   });
   await check('F-13: an unknown name and a wrong password look the same to the client', async () => {
     await signup('ivy');
@@ -613,7 +726,7 @@ try {
     const h = await pair('none');
     await sleep(500);
     h.w.close(); // White drops and comes back: the deadline keeps running
-    const back = client();
+    const back = client({ cookie: h.w.cookie });
     back.send({ t: 'join', room: h.room, token: h.tokens.w });
     await back.next('joined');
     assert.ok((await back.next('state')).firstMoveMs <= 350, 'reconnecting reset the deadline');

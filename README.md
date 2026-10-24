@@ -31,8 +31,9 @@ Configure with environment variables:
 
 | Variable | What it's for |
 |---|---|
-| `APP_URL` | The site's public address, used in emailed links and the Google redirect, e.g. `https://chess.example.com` |
+| `APP_URL` | The site's public address, used in emailed links, the Google redirect, and the page's canonical, social-card and sitemap URLs, e.g. `https://chess.example.com` |
 | `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS` | Your mail server (port 465 uses TLS directly; 587 upgrades with STARTTLS) |
+| `CONTACT_EMAIL` | Shown as the contact address on the About, Privacy and Terms pages |
 | `MAIL_FROM` | The sender, e.g. `3D Chess <no-reply@chess.example.com>` (defaults to `SMTP_USER`) |
 | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | From a Google Cloud "OAuth client ID" (type: Web application). Add `APP_URL/auth/google/callback` as an authorized redirect URI. Without these the Google button is hidden. |
 
@@ -41,6 +42,14 @@ Without `SMTP_HOST`, emails are printed to the server console as `MAIL {...}` li
 ### Deploying behind a proxy
 
 Rate limits (sign-ups, logins, connections, waiting rooms) are per client address. Behind a reverse proxy or a host like Render or Fly, every request appears to come from the proxy, so set `TRUST_PROXY=1` there to use the first `X-Forwarded-For` address instead. Never set it when clients connect to Node directly, or they could fake their address.
+
+### Search engines and sharing
+
+The page carries a title, description, canonical link, Open Graph and Twitter cards (`og-image.jpg`, 1200×630) and JSON-LD structured data. The server also serves `/robots.txt` and `/sitemap.xml`, marks private game links (`/g/…`), `/api` and `/auth` as `noindex`, and compresses text files (brotli or gzip) with ETags, so repeat visits get a 304.
+
+Beside the game, the server renders plain HTML pages (no scripts) from `pages.js`, styled by `pages.css`: `/how-to-play`, `/about`, `/privacy`, `/terms`, `/leaderboard` (players with a settled rating) and `/u/<name>` profiles. The sitemap lists them, plus every registered player with a rated game; guest profiles and unknown pages are `noindex`. The privacy policy and terms describe what this code does, but they are a starting point, not legal advice: review them, and set `CONTACT_EMAIL`, before launch.
+
+All absolute URLs come from `APP_URL`, so set it to the real domain in production, otherwise search engines and link previews see `localhost`. After deploying, add the site to Google Search Console and submit `APP_URL/sitemap.xml`.
 
 ## Features
 

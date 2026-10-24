@@ -3,9 +3,47 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>3D Chess</title>
+<title>3D Chess – Play Free Online Chess in Realistic 3D</title>
+<meta name="description" content="Play chess online in realistic 3D. Challenge a friend with a link, get paired with a random opponent, or play the computer. Free, no download.">
+<link rel="canonical" href="__APP_URL__/">
 <meta name="theme-color" content="#0e0f12">
+<meta name="color-scheme" content="dark">
 <link rel="icon" href="/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<link rel="manifest" href="/site.webmanifest">
+<!-- link previews (Facebook, WhatsApp, Slack, Discord, LinkedIn) and X/Twitter cards -->
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="3D Chess">
+<meta property="og:title" content="3D Chess – Play Free Online Chess in Realistic 3D">
+<meta property="og:description" content="Real 3D pieces on a marble board. Play friends by link, random opponents or the computer. Free, in your browser.">
+<meta property="og:url" content="__APP_URL__/">
+<meta property="og:image" content="__APP_URL__/og-image.jpg">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="A realistic 3D chess board with marble squares and carved pieces, with the title 3D Chess">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="3D Chess – Play Free Online Chess in Realistic 3D">
+<meta name="twitter:description" content="Real 3D pieces on a marble board. Play friends by link, random opponents or the computer. Free, in your browser.">
+<meta name="twitter:image" content="__APP_URL__/og-image.jpg">
+<!-- structured data: tells search engines this is a free browser game -->
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": ["VideoGame", "WebApplication"],
+  "name": "3D Chess",
+  "url": "__APP_URL__/",
+  "image": "__APP_URL__/og-image.jpg",
+  "description": "Play chess online in realistic 3D: friends by link, random opponents with clocks and ratings, or the Stockfish computer.",
+  "genre": "Chess",
+  "applicationCategory": "GameApplication",
+  "operatingSystem": "Any (web browser)",
+  "gamePlatform": "Web browser",
+  "playMode": ["MultiPlayer", "SinglePlayer"],
+  "inLanguage": "en",
+  "isAccessibleForFree": true,
+  "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" }
+}
+</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
@@ -146,6 +184,10 @@
   #liveList li { display: flex; justify-content: space-between; align-items: center; gap: 10px; background: rgba(0, 0, 0, .25);
                  border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 8px 8px 8px 12px; }
   #closeLobby { display: block; margin: 20px auto 0; }
+  .site-links { display: flex; flex-wrap: wrap; justify-content: center; gap: 4px 14px; margin-top: 14px; font-size: 12px; }
+  .site-links a, .hint a { color: var(--muted); text-underline-offset: 3px; }
+  .site-links a { text-decoration: none; }
+  .site-links a:hover, .hint a:hover { color: var(--text); }
   #lobbyOffline { color: var(--muted); }
 
   /* ---------- dialogs ---------- */
@@ -266,6 +308,14 @@
 </script>
 </head>
 <body>
+<noscript>
+  <div style="max-width: 640px; margin: 15vh auto; padding: 24px; font: 16px/1.5 system-ui, sans-serif; color: #ece7dc">
+    <h1 style="font-family: Georgia, serif">3D Chess: play free online chess in realistic 3D</h1>
+    <p>Play chess on a realistic 3D marble board: challenge a friend with a private link, get paired with a random opponent with clocks and ratings, or play the Stockfish computer. Sign in to keep a rating and game history, or play as a guest.</p>
+    <p>3D Chess needs JavaScript to run. Please turn it on and reload.</p>
+    <p><a href="/how-to-play" style="color: #d4af6a">How to play</a> · <a href="/leaderboard" style="color: #d4af6a">Leaderboard</a> · <a href="/about" style="color: #d4af6a">About</a> · <a href="/privacy" style="color: #d4af6a">Privacy</a> · <a href="/terms" style="color: #d4af6a">Terms</a></p>
+  </div>
+</noscript>
 <header id="topbar">
   <a class="brand" href="/" aria-label="3D Chess, home"><span class="brand-mark" aria-hidden="true">♞</span><span class="brand-name">3D Chess</span></a>
   <span id="status" role="status"></span>
@@ -379,6 +429,7 @@
       <ul id="liveList"></ul>
     </div>
     <button id="closeLobby" class="link">Back to the board</button>
+    <nav class="site-links" aria-label="More"><a href="/leaderboard">Leaderboard</a><a href="/how-to-play">How to play</a><a href="/about">About</a><a href="/privacy">Privacy</a><a href="/terms">Terms</a></nav>
   </div>
 </div>
 
@@ -421,7 +472,7 @@
       <label>Password<span class="pw"><input id="suPass" aria-label="Password" type="password" autocomplete="new-password" required minlength="8" maxlength="200"><button type="button" class="eye">Show</button></span></label>
       <div class="meter" data-for="suPass"><i></i></div><p class="meter-label" data-for="suPass"></p>
       <label>Confirm password<input id="suPass2" type="password" autocomplete="new-password" required maxlength="200"></label>
-      <p class="hint">We'll email you a link to confirm your address.</p>
+      <p class="hint">We'll email you a link to confirm your address. By creating an account you agree to the <a href="/terms" target="_blank">Terms</a> and <a href="/privacy" target="_blank">Privacy policy</a>.</p>
       <p class="err" role="alert"></p>
       <button class="primary wide">Create account</button>
     </form>
@@ -449,6 +500,7 @@
       <p class="hint" style="text-align: center; margin-top: 6px">Guests can play anyone, but games aren't rated or saved to a profile.</p>
     </div>
     <button type="button" id="authCancel" class="link" style="align-self: center">Close</button>
+    <nav class="site-links" aria-label="More" style="margin-top: 0"><a href="/leaderboard">Leaderboard</a><a href="/how-to-play">How to play</a><a href="/about">About</a><a href="/privacy">Privacy</a><a href="/terms">Terms</a></nav>
   </div>
 </dialog>
 <dialog id="settings">
@@ -522,6 +574,7 @@
   <div>
     <h2 id="profileName"></h2>
     <p id="profileRating" style="margin: 0"></p>
+    <p class="hint"><a id="profileLink" href="/" target="_blank">Public profile page ↗</a></p>
     <ul id="profileGames"></ul>
     <div class="row"><button id="signOut" class="ghost">Sign out</button><button id="openSettings">Account settings</button><button id="profileClose" class="primary">Close</button></div>
   </div>
@@ -1298,6 +1351,8 @@ function showAuth(view = 'signin') {
 for (const t of document.querySelectorAll('#authTabs button, #auth [data-goto]')) t.onclick = () => showAuth(t.dataset.view || t.dataset.goto);
 btn('authCancel').onclick = () => gate ? showAuth('signin') : btn('auth').close(); // from "forgot" back to the gate's sign-in
 btn('auth').addEventListener('cancel', e => { if (gate) e.preventDefault(); }); // Esc doesn't skip the gate
+// Chrome closes a modal anyway on a second quick Esc, whatever the cancel handler says: reopen it
+btn('auth').addEventListener('close', () => { if (gate && !me) setTimeout(() => showAuth('signin')); });
 btn('guestBtn').onclick = async () => {
   btn('guestBtn').disabled = true;
   const r = await api('/api/guest', {}); // a temporary guest account: signed in, with a Guest_ name opponents see
@@ -1359,7 +1414,7 @@ try { const n = sessionStorage.getItem('notice'); if (n) { sessionStorage.remove
 
 Promise.all([api('/api/config').catch(() => ({})), api('/api/me')]).then(([config, r]) => {
   googleOn = !!config.google;
-  if (!r.ok) return enterSite(); // no game server (static hosting): no accounts, local play only
+  if (r.status === 404) return enterSite(); // no game server (static hosting): no accounts, local play only
   me = r.user;
   if (me) enterSite();
   else if (!resetToken) { gate = true; showAuth('signin'); }
@@ -1467,6 +1522,7 @@ async function openProfile(name) {
   const p = await api('/api/users/' + encodeURIComponent(name));
   if (!p.ok) return;
   btn('profileName').textContent = p.name;
+  btn('profileLink').href = '/u/' + encodeURIComponent(p.name);
   btn('profileRating').textContent = `Rating ${p.rating}${p.provisional ? '? (provisional until a few more rated games)' : ''}`;
   btn('signOut').hidden = btn('openSettings').hidden = name !== me?.name;
   btn('openSettings').textContent = me?.guest ? 'Save your account' : 'Account settings';

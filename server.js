@@ -1,7 +1,8 @@
 // Game server: serves the page and model files, and runs the lobby, matchmaking and game rooms over WebSocket.
 // Every move is re-checked with chess.js here, so a modified client can't play illegal moves.
 import { createServer } from 'node:http';
-import { readFile } from 'node:fs/promises';
+import { readFile, stat } from 'node:fs/promises';
+import { brotliCompressSync, gzipSync, constants as zlib } from 'node:zlib';
 import { join, normalize, extname } from 'node:path';
 import { randomBytes, randomUUID, scrypt, timingSafeEqual, createHash } from 'node:crypto';
 import { promisify } from 'node:util';
@@ -11,10 +12,12 @@ import { WebSocketServer } from 'ws';
 import nodemailer from 'nodemailer';
 import { Chess } from 'chess.js';
 import { glicko2 } from './glicko2.js';
+import { sitePages } from './pages.js';
 
 const ROOT = import.meta.dirname, PORT = process.env.PORT || 3000;
 const TYPES = { '.html': 'text/html; charset=utf-8', '.gltf': 'model/gltf+json', '.bin': 'application/octet-stream', '.jpg': 'image/jpeg', '.svg': 'image/svg+xml',
-  '.js': 'text/javascript; charset=utf-8', '.txt': 'text/plain; charset=utf-8' };
+  '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.txt': 'text/plain; charset=utf-8', '.png': 'image/png', '.xml': 'application/xml; charset=utf-8',
+  '.webmanifest': 'application/manifest+json; charset=utf-8' };
 
 // --- database: accounts, sessions, one-time links, finished games ---
 const DB_FILE = process.env.DB_FILE || join(ROOT, 'data', 'chess.db');
@@ -195,8 +198,9 @@ const redirect = (res, to) => res.writeHead(302, { Location: to, 'Cache-Control'
 const csp = (scriptHashes = []) => ["default-src 'self'", ["script-src 'self'", ...scriptHashes.map(h => `'sha256-${h}'`)].join(' '),
   "worker-src 'self'", "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com", "font-src https://fonts.gstatic.com",
   "img-src 'self' data: blob:", "connect-src 'self'", "object-src 'none'", "base-uri 'none'", "form-action 'self'", "frame-ancestors 'none'"].join('; ');
-const inlineScriptHashes = html => [...html.toString().matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/g)]
-  .filter(m => m[1].trim()).map(m => createHash('sha256').update(m[1]).digest('base64'));
+// hashes of the inline scripts that run (the import map and the module); JSON-LD is data, not script, so it's skipped
+const inlineScriptHashes = html => [...html.toString().matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script>/g)]
+  .filter(m => m[2].trim() && !m[1].includes('application/ld+json')).map(m => createHash('sha256').update(m[2]).digest('base64'));
 const SECURITY_HEADERS = {
   'Content-Security-Policy': csp(),
   'X-Frame-Options': 'DENY', // no framing: stops clickjacking of Resign and similar buttons
@@ -488,23 +492,96 @@ async function google(req, res, url) {
   return redirect(res, '/?auth=google');
 }
 
+// --- static files: the page, its icons and share image, the 3D model and the vendored libraries ---
+// Text-like files are compressed (brotli or gzip) once per version and kept in memory; every file gets an
+// ETag so repeat visits revalidate with a cheap 304 instead of downloading again.
+const PUBLIC_FILES = new Set(['pages.css', 'icon.svg', 'og-image.jpg', 'apple-touch-icon.png', 'icon-192.png', 'icon-512.png', 'site.webmanifest']);
+const COMPRESSIBLE = new Set(['.html', '.css', '.js', '.gltf', '.bin', '.svg', '.webmanifest', '.xml', '.txt']);
+const compressed = new Map(); // `${file}:${mtime}:${encoding}` -> Buffer
+function publicFile(path) {
+  if (path === '/' || /^\/g\/[a-z0-9]+$/.test(path)) return 'index.html';
+  if (path === '/favicon.ico') return 'icon.svg'; // browsers that still ask for it get the same icon
+  if (PUBLIC_FILES.has(path.slice(1))) return path.slice(1);
+  if (path.startsWith('/models/') || path.startsWith('/vendor/')) return path.slice(1);
+  return null;
+}
+async function serveFile(req, res, file, path) {
+  const info = await stat(join(ROOT, file));
+  if (!info.isFile()) throw new Error('not a file');
+  const page = file === 'index.html';
+  const etag = `W/"${info.size.toString(36)}-${Math.floor(info.mtimeMs).toString(36)}"`;
+  const type = TYPES[extname(file)] ?? 'application/octet-stream';
+  // the page revalidates every time (it changes with deploys); libraries, the model and images are cached for a day
+  res.setHeader('Cache-Control', page ? 'no-cache' : 'public, max-age=86400');
+  res.setHeader('ETag', etag);
+  if (path.startsWith('/g/')) res.setHeader('X-Robots-Tag', 'noindex, nofollow'); // private game links stay out of search results
+  let body = await readFile(join(ROOT, file));
+  if (page) {
+    body = Buffer.from(body.toString().replaceAll('__APP_URL__', APP_URL)); // absolute URLs for canonical, Open Graph, JSON-LD
+    // hashed each time, so edits stay in sync; also on a 304, whose headers replace the cached ones,
+    // or a refresh would get the hash-less default CSP and block the page's own scripts
+    res.setHeader('Content-Security-Policy', csp(inlineScriptHashes(body)));
+  }
+  if (req.headers['if-none-match'] === etag) return res.writeHead(304).end();
+  sendBody(req, res, 200, type, body, COMPRESSIBLE.has(extname(file)) && `${file}:${info.mtimeMs}`);
+}
+// cacheKey: compress once and keep it (files); true: compress every time (rendered pages); false: send as is
+function sendBody(req, res, status, type, body, cacheKey) {
+  const accept = String(req.headers['accept-encoding'] ?? '');
+  const encoding = !cacheKey ? null : /\bbr\b/.test(accept) ? 'br' : /\bgzip\b/.test(accept) ? 'gzip' : null;
+  if (cacheKey) res.setHeader('Vary', 'Accept-Encoding');
+  if (encoding) {
+    const key = `${cacheKey}:${encoding}`, squeeze = () => encoding === 'br'
+      ? brotliCompressSync(body, { params: { [zlib.BROTLI_PARAM_QUALITY]: cacheKey === true ? 5 : 9, [zlib.BROTLI_PARAM_SIZE_HINT]: body.length } })
+      : gzipSync(body, { level: cacheKey === true ? 6 : 9 });
+    if (cacheKey === true) body = squeeze();
+    else body = compressed.get(key) ?? compressed.set(key, squeeze()).get(key);
+    res.setHeader('Content-Encoding', encoding);
+  }
+  res.writeHead(status, { 'Content-Type': type, 'Content-Length': body.length }).end(req.method === 'HEAD' ? undefined : body);
+}
+
+// --- crawler files ---
+const robotsTxt = () => `User-agent: *\nAllow: /\nDisallow: /api/\nDisallow: /auth/\n\nSitemap: ${APP_URL}/sitemap.xml\n`;
+const STARTED = new Date().toISOString().slice(0, 10);
+const sitemapXml = () => `<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+${pages.sitemap().map(([p, last]) => `  <url><loc>${APP_URL}${p}</loc><lastmod>${last ? new Date(last).toISOString().slice(0, 10) : STARTED}</lastmod></url>`).join('\n')}
+</urlset>
+`;
+// how to play, about, privacy, terms, leaderboard and /u/<name> profiles (see pages.js)
+const pages = sitePages(db, APP_URL, process.env.CONTACT_EMAIL);
+
 const server = createServer(async (req, res) => {
   for (const [k, v] of Object.entries(SECURITY_HEADERS)) res.setHeader(k, v);
   let path = '';
   try { path = normalize(decodeURIComponent(new URL(req.url, 'http://x').pathname)); } catch {}
-  if (path.startsWith('/api/')) return api(req, res, path).catch(() => json(res, 500, { error: 'Server error.' }));
-  if (path === '/auth/google' || path === '/auth/google/callback') return google(req, res, new URL(req.url, 'http://x')).catch(() => redirect(res, '/?auth=failed'));
-  // only the page, its icon, the model folder and the vendored libraries are public
-  // (browsers that still ask for /favicon.ico get the same icon)
-  const file = path === '/' || /^\/g\/[a-z0-9]+$/.test(path) ? 'index.html' : path === '/icon.svg' || path === '/favicon.ico' ? 'icon.svg'
-    : path.startsWith('/models/') || path.startsWith('/vendor/') ? path.slice(1) : null;
+  if (path.startsWith('/api/')) {
+    res.setHeader('X-Robots-Tag', 'noindex');
+    return api(req, res, path).catch(() => json(res, 500, { error: 'Server error.' }));
+  }
+  if (path === '/auth/google' || path === '/auth/google/callback') {
+    res.setHeader('X-Robots-Tag', 'noindex');
+    return google(req, res, new URL(req.url, 'http://x')).catch(() => redirect(res, '/?auth=failed'));
+  }
+  if (path === '/robots.txt') return res.writeHead(200, { 'Content-Type': TYPES['.txt'], 'Cache-Control': 'public, max-age=3600' }).end(robotsTxt());
+  if (path === '/sitemap.xml') return res.writeHead(200, { 'Content-Type': TYPES['.xml'], 'Cache-Control': 'public, max-age=3600' }).end(sitemapXml());
+  const isRead = ['GET', 'HEAD'].includes(req.method);
+  const page = isRead && pages.render(path);
+  if (page?.redirect) return res.writeHead(301, { Location: page.redirect }).end();
+  if (page) {
+    res.setHeader('Cache-Control', 'no-cache');
+    if (page.status !== 200 || page.noindex) res.setHeader('X-Robots-Tag', 'noindex');
+    return sendBody(req, res, page.status, TYPES['.html'], Buffer.from(page.html), true);
+  }
+  const file = publicFile(path);
   try {
-    if (!file) throw 0;
-    const body = await readFile(join(ROOT, file));
-    if (file === 'index.html') res.setHeader('Content-Security-Policy', csp(inlineScriptHashes(body))); // hashed each time, so edits stay in sync
-    res.writeHead(200, { 'Content-Type': TYPES[extname(file)] ?? 'application/octet-stream' }).end(body);
+    if (!file || !isRead) throw new Error('not found');
+    await serveFile(req, res, file, path);
   } catch {
-    res.writeHead(404).end('Not found');
+    res.setHeader('X-Robots-Tag', 'noindex');
+    if (isRead && !extname(path)) sendBody(req, res, 404, TYPES['.html'], Buffer.from(pages.notFound(path)), true);
+    else res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' }).end('Not found');
   }
 });
 
@@ -660,10 +737,10 @@ function broadcast(room) {
     drawOffer: room.drawOffer, rematch: [...room.rematch], watchers: room.watchers.size,
     firstMoveMs: room.abortAt && Math.max(0, room.abortAt - Date.now()), // time left for the pending first move, or null
     claimable: room.result ? null : claimableDraw(room.game) }; // a draw either player may claim right now, or null
+  persist(room); // saved before anyone hears of it, so a crash can't lose a move a player already saw
   for (const s of COLORS) send(room.seats[s]?.ws, { ...state, you: s });
   for (const ws of room.watchers) send(ws, { ...state, you: null });
   lobbyChanged();
-  persist(room);
 }
 
 function persist(room) {
@@ -775,6 +852,8 @@ wss.on('connection', (ws, req) => {
 
     if (!ws.room) {
       if (m.t === 'lobby') { lobby.add(ws); return send(ws, lobbyState()); }
+      // playing needs an account (a guest account counts); without one you can only watch
+      if ((m.t === 'seek' || m.t === 'create') && !ws.user) return send(ws, { t: 'error', msg: 'Sign in or continue as a guest to play.' });
       if (m.t === 'seek' && validTc(m.tc)) {
         leaveLobby(ws);
         lobby.add(ws);
@@ -807,7 +886,7 @@ wss.on('connection', (ws, req) => {
         // the token alone (left in a tab after signing out, say) only lets you watch.
         const owns = c => !r.seats[c].user || r.seats[c].user.id === ws.user?.id;
         const seat = COLORS.find(c => r.seats[c] && owns(c) && ((typeof m.token === 'string' && r.seats[c].token === m.token) || r.seats[c].user));
-        const free = COLORS.find(c => !r.seats[c]);
+        const free = ws.user && COLORS.find(c => !r.seats[c]);
         return seat ? enter(ws, r, seat, r.seats[seat].token) : free ? enter(ws, r, free) : enter(ws, r, null); // full: watch
       }
       return;
