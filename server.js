@@ -288,13 +288,25 @@ function flag(room, color) {
   finish(room, canWin ? other(color) : null, canWin ? 'timeout' : 'timeout vs insufficient material');
 }
 
+// FIDE draw rules (art. 9): threefold repetition and the fifty-move rule are draws a player may *claim*;
+// the game ends by itself only at fivefold repetition or seventy-five moves. A position is the same when
+// the pieces, side to move, castling rights and en passant square all match (the first four FEN fields).
+const positionKey = fen => fen.split(' ').slice(0, 4).join(' ');
+function repetitions(g) {
+  const moves = g.history({ verbose: true }), now = positionKey(g.fen());
+  if (!moves.length) return 1;
+  return [moves[0].before, ...moves.map(m => m.after)].filter(f => positionKey(f) === now).length;
+}
+const halfmoves = g => Number(g.fen().split(' ')[4]); // since the last capture or pawn move
+const claimableDraw = g => repetitions(g) >= 3 ? 'threefold repetition' : halfmoves(g) >= 100 ? '50-move rule' : null;
+
 function checkEnd(room) {
   const g = room.game;
-  if (g.isCheckmate()) finish(room, other(g.turn()), 'checkmate');
+  if (g.isCheckmate()) finish(room, other(g.turn()), 'checkmate'); // checkmate on the 75th move still wins
   else if (g.isStalemate()) finish(room, null, 'stalemate');
   else if (g.isInsufficientMaterial()) finish(room, null, 'insufficient material');
-  else if (g.isThreefoldRepetition()) finish(room, null, 'threefold repetition');
-  else if (g.isDraw()) finish(room, null, '50-move rule');
+  else if (repetitions(g) >= 5) finish(room, null, 'fivefold repetition');
+  else if (halfmoves(g) >= 150) finish(room, null, '75-move rule');
 }
 
 // flag the side to move when its time runs out, even if nobody sends anything
@@ -322,7 +334,8 @@ function broadcast(room) {
   const clock = c && { running: c.running, ...Object.fromEntries(COLORS.map(s => [s, c[s] - (s === c.running ? Date.now() - c.since : 0)])) };
   const state = { t: 'state', pgn: room.game.pgn(), seats, players: players(room), tc: room.tc, clock, result: room.result,
     drawOffer: room.drawOffer, rematch: [...room.rematch], watchers: room.watchers.size,
-    firstMoveMs: room.abortAt && Math.max(0, room.abortAt - Date.now()) }; // time left for the pending first move, or null
+    firstMoveMs: room.abortAt && Math.max(0, room.abortAt - Date.now()), // time left for the pending first move, or null
+    claimable: room.result ? null : claimableDraw(room.game) }; // a draw either player may claim right now, or null
   for (const s of COLORS) send(room.seats[s]?.ws, { ...state, you: s });
   for (const ws of room.watchers) send(ws, { ...state, you: null });
   lobbyChanged();
@@ -513,6 +526,9 @@ wss.on('connection', (ws, req) => {
           }
         }
       }
+    } else if (m.t === 'claim' && playing) {
+      const draw = claimableDraw(room.game); // decided by the server, never by what the client says
+      if (draw) finish(room, null, draw);
     } else if (m.t === 'resign' && playing) {
       finish(room, other(color), 'resignation');
     } else if (m.t === 'draw' && playing) {

@@ -119,7 +119,9 @@ for (const p of 'qrbn') plant(`promo000${p}`, '8/1P5k/8/8/8/8/7P/K7 w - - 0 1');
 plant('promobad01', '8/1P5k/8/8/8/8/7P/K7 w - - 0 1');                      // invalid promotion pieces
 plant('stalemate1', 'k7/8/1Q6/8/8/8/8/7K w - - 0 1');                       // Qc7 stalemates
 plant('insuffic01', '8/8/8/4k3/8/8/3n4/4K3 w - - 0 1');                     // Kxd2 leaves bare kings
-plant('fiftymove1', '8/8/8/4k3/8/8/8/R3K3 w - - 99 80');                    // the 100th quiet half-move
+plant('fiftymove1', '8/8/8/4k3/8/8/8/R3K3 w - - 99 80');                    // the 100th quiet half-move: claimable
+plant('fiftymove2', '8/8/8/4k3/8/8/8/R3K3 w - - 99 80');                    // claimed with the wrong player… then right
+plant('seventyfive', '8/8/8/4k3/8/8/8/R3K3 w - - 149 80');                  // the 150th quiet half-move: automatic
 plant('flagrace01', '3qk3/8/8/8/8/8/8/4K3 w - - 0 1', { tc: '1+0', clock: { w: 300, b: 6e4, inc: 0, running: 'w', since: Date.now() } });
 await startServer();
 
@@ -177,18 +179,61 @@ try {
     assert.equal(moves(s.pgn), '1. f3 e5 2. g4 Qh4#');
     closeAll(g);
   });
-  await check('rules: stalemate, insufficient material, fifty-move rule and threefold repetition are draws', async () => {
+  await check('rules: stalemate and insufficient material end the game at once', async () => {
     const st = await seat('stalemate1');
     assert.deepEqual((await play(st, 'w', 'b6', 'c7')).result, { winner: null, reason: 'stalemate' });
     const im = await seat('insuffic01');
     assert.deepEqual((await play(im, 'w', 'e1', 'd2')).result, { winner: null, reason: 'insufficient material' });
-    const fm = await seat('fiftymove1');
-    assert.deepEqual((await play(fm, 'w', 'a1', 'a2')).result, { winner: null, reason: '50-move rule' });
+    closeAll(st, im);
+  });
+  await check('rules: threefold repetition is a draw a player claims; play goes on until someone does', async () => {
     const tf = await pair();
     let s;
-    for (let i = 0; i < 2; i++) for (const [who, f, t] of [['w', 'g1', 'f3'], ['b', 'g8', 'f6'], ['w', 'f3', 'g1'], ['b', 'f6', 'g8']]) s = await play(tf, who, f, t);
-    assert.deepEqual(s.result, { winner: null, reason: 'threefold repetition' });
-    closeAll(st, im, fm, tf);
+    const shuffle = [['w', 'g1', 'f3'], ['b', 'g8', 'f6'], ['w', 'f3', 'g1'], ['b', 'f6', 'g8']];
+    for (const [who, f, t] of shuffle) s = await play(tf, who, f, t);
+    assert.equal(s.claimable, null, 'claimable after only two occurrences');
+    for (const [who, f, t] of shuffle) s = await play(tf, who, f, t);
+    assert.equal(s.result, null, 'threefold ended the game by itself');
+    assert.equal(s.claimable, 'threefold repetition');
+    tf.b.send({ t: 'claim' }); // either player may claim, here the one not on move
+    const [c] = await Promise.all([tf.w.next('state'), tf.b.next('state')]);
+    assert.deepEqual(c.result, { winner: null, reason: 'threefold repetition' });
+    closeAll(tf);
+  });
+  await check('rules: claims are checked by the server; spectators and early claims change nothing', async () => {
+    const g = await pair();
+    await play(g, 'w', 'e2', 'e4');
+    g.w.send({ t: 'claim', reason: 'threefold repetition' }); // nothing to claim
+    const spy = client();
+    spy.send({ t: 'join', room: g.room }); await spy.next('joined');
+    await sleep(250);
+    assert.equal(g.b.last('state').result, null);
+    // the fifty-move rule: claimable after the 100th quiet half-move; a spectator's claim is ignored
+    const fm = await seat('fiftymove2');
+    const s = await play(fm, 'w', 'a1', 'a2');
+    assert.equal(s.result, null, 'fifty moves ended the game by itself');
+    assert.equal(s.claimable, '50-move rule');
+    const watcher = client();
+    watcher.send({ t: 'join', room: 'fiftymove2' }); await watcher.next('joined');
+    watcher.send({ t: 'claim' }); await sleep(250);
+    assert.equal(fm.w.last('state').result, null, 'a spectator claimed the draw');
+    fm.w.drain(); fm.b.drain(); // drop the updates sent when the spectator joined
+    fm.w.send({ t: 'claim' });
+    const [c] = await Promise.all([fm.w.next('state'), fm.b.next('state')]);
+    assert.deepEqual(c.result, { winner: null, reason: '50-move rule' });
+    closeAll(g, fm); spy.close(); watcher.close();
+  });
+  await check('rules: fivefold repetition and the 75-move rule end the game automatically', async () => {
+    const ff = await pair();
+    let s;
+    for (let i = 0; i < 4; i++) for (const [who, f, t] of [['w', 'g1', 'f3'], ['b', 'g8', 'f6'], ['w', 'f3', 'g1'], ['b', 'f6', 'g8']]) s = await play(ff, who, f, t);
+    assert.deepEqual(s.result, { winner: null, reason: 'fivefold repetition' });
+    const sf = await seat('seventyfive');
+    assert.deepEqual((await play(sf, 'w', 'a1', 'a2')).result, { winner: null, reason: '75-move rule' });
+    // the fifty-move claim from earlier also still works on its own room
+    const fm = await seat('fiftymove1');
+    assert.equal((await play(fm, 'w', 'a1', 'a2')).claimable, '50-move rule');
+    closeAll(ff, sf, fm);
   });
 
   // ===== adversarial scenario matrix =====

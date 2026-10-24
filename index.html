@@ -259,6 +259,7 @@
   <button id="drawBtn" class="online-only" data-icon="½" hidden>Offer draw</button>
   <button id="declineBtn" class="online-only" data-icon="✕" hidden>Decline draw</button>
   <button id="rematchBtn" class="online-only primary" data-icon="↻" hidden>Rematch</button>
+  <button id="claimBtn" data-icon="=" hidden>Claim draw</button>
   <button id="chatBtn" class="online-only" data-icon="💬" aria-label="Chat" hidden>Chat<span id="chatBadge" class="badge" hidden></span></button>
 </div>
 
@@ -504,7 +505,7 @@ function tone(freq, dur, type, vol, delay = 0) {
 }
 function playSound(m) {
   if (!soundEl.checked) return;
-  if (game.isGameOver()) [523, 659, 784].forEach((f, i) => tone(f, 0.5, 'triangle', 0.2, i * 0.12));
+  if (currentResult()) [523, 659, 784].forEach((f, i) => tone(f, 0.5, 'triangle', 0.2, i * 0.12));
   else if (game.inCheck()) { tone(880, 0.15, 'square', 0.1); tone(660, 0.2, 'square', 0.1, 0.12); }
   else if (m.captured) tone(180, 0.18, 'triangle', 0.5);
   else tone(320, 0.08, 'triangle', 0.35);
@@ -625,7 +626,7 @@ function bestMove(fen, skill, ms) {
 }
 
 async function maybeCpu() {
-  if (game.turn() !== cpuColor() || game.isGameOver()) return;
+  if (game.turn() !== cpuColor() || localResult()) return;
   busy = true;
   statusEl.textContent = 'Computer is thinking…';
   const [skill, ms] = LEVELS[modeEl.value];
@@ -701,13 +702,26 @@ function paint() {
 
 // --- results, move list, game-over screen ---
 const NAME = { w: 'White', b: 'Black' }, otherColor = c => c === 'w' ? 'b' : 'w';
+// FIDE draw rules, as on the server: threefold repetition and the fifty-move rule must be claimed;
+// only fivefold repetition and seventy-five moves end the game by themselves
+const positionKey = fen => fen.split(' ').slice(0, 4).join(' ');
+function repetitions(g) {
+  const moves = g.history({ verbose: true }), now = positionKey(g.fen());
+  if (!moves.length) return 1;
+  return [moves[0].before, ...moves.map(m => m.after)].filter(f => positionKey(f) === now).length;
+}
+const halfmoves = g => Number(g.fen().split(' ')[4]);
+const claimableDraw = g => repetitions(g) >= 3 ? 'threefold repetition' : halfmoves(g) >= 100 ? '50-move rule' : null;
+let localClaim = null; // { pgn, reason } after a draw is claimed in a local game
+
 function localResult() {
   const g = game;
   if (g.isCheckmate()) return { winner: otherColor(g.turn()), reason: 'checkmate' };
   if (g.isStalemate()) return { winner: null, reason: 'stalemate' };
   if (g.isInsufficientMaterial()) return { winner: null, reason: 'insufficient material' };
-  if (g.isThreefoldRepetition()) return { winner: null, reason: 'threefold repetition' };
-  if (g.isDraw()) return { winner: null, reason: '50-move rule' };
+  if (repetitions(g) >= 5) return { winner: null, reason: 'fivefold repetition' };
+  if (halfmoves(g) >= 150) return { winner: null, reason: '75-move rule' };
+  if (localClaim?.pgn === g.pgn()) return { winner: null, reason: localClaim.reason };
   return null;
 }
 const currentResult = () => online ? online.result : localResult();
@@ -777,6 +791,10 @@ function update() {
     btn('rematchBtn').textContent = online.rematch.includes(me) ? 'Rematch requested' : online.rematch.includes(opp) ? 'Accept rematch' : 'Rematch';
     btn('rematchBtn').disabled = online.rematch.includes(me);
   }
+  const claim = res ? null : online ? (online.color && online.seats.w && online.seats.b ? online.claimable : null) : claimableDraw(game);
+  btn('claimBtn').hidden = !claim;
+  btn('claimBtn').title = claim ? `Claim a draw by ${claim}` : '';
+  if (claim) text += ` · draw can be claimed (${claim})`;
   statusEl.textContent = statusEl.title = baseStatus = text;
   const key = res && game.pgn() + res.reason;
   if (key && key !== shownOver && btn('lobby').hidden) {
@@ -803,7 +821,7 @@ async function playMove(mv) {
 }
 
 async function onSquare(sq) {
-  if (!realSet || busy || game.isGameOver() || online?.result || game.turn() === cpuColor()) return;
+  if (!realSet || busy || currentResult() || game.turn() === cpuColor()) return;
   if (online && (game.turn() !== online.color || !online.seats.w || !online.seats.b)) return;
   const move = targets.find(m => m.to === sq), prev = selected;
   selected = null; targets = [];
@@ -840,6 +858,7 @@ renderer.domElement.addEventListener('pointerup', e => {
 async function restart(fn) {
   if (busy) return;
   busy = true;
+  localClaim = null; // a claim belongs to the game it was made in, not to a new game with the same moves
   await fn(); selected = null; targets = []; syncPieces(); update();
   sideEl.disabled = !cpuColor();
   await faceSideToMove();
@@ -851,7 +870,7 @@ document.getElementById('undo').onclick = () => restart(() => {
   if (game.turn() === cpuColor()) game.undo(); // vs CPU: take back the CPU reply too
 });
 document.getElementById('reset').onclick = async () => {
-  if (game.history().length && !game.isGameOver() && !await askConfirm('Start a new game?', 'The current game will be lost.', 'New game')) return;
+  if (game.history().length && !currentResult() && !await askConfirm('Start a new game?', 'The current game will be lost.', 'New game')) return;
   restart(() => game.reset());
 };
 document.getElementById('flip').onclick = () => restart(flipCamera);
@@ -942,7 +961,7 @@ async function onServer(m) {
   }
   if (m.t === 'state') {
     Object.assign(online, { color: m.you, seats: m.seats, tc: m.tc, clock: m.clock, clockAt: performance.now(),
-      result: m.result, drawOffer: m.drawOffer, rematch: m.rematch, watchers: m.watchers, players: m.players, firstMoveMs: m.firstMoveMs });
+      result: m.result, drawOffer: m.drawOffer, rematch: m.rematch, watchers: m.watchers, players: m.players, firstMoveMs: m.firstMoveMs, claimable: m.claimable });
     const mine = m.you && m.players[m.you];
     if (mine && mine.name === me?.name) { Object.assign(me, mine); btn('account').textContent = rated(me); }
     await idle();
@@ -997,6 +1016,11 @@ btn('chatForm').onsubmit = e => {
 };
 btn('resign').onclick = async () => { if (await askConfirm('Resign?', 'Your opponent wins this game.', 'Resign', true)) send({ t: 'resign' }); };
 btn('drawBtn').onclick = () => send({ t: 'draw' });
+btn('claimBtn').onclick = () => {
+  if (online) return send({ t: 'claim' }); // the server checks the claim itself
+  const reason = claimableDraw(game);
+  if (reason) { localClaim = { pgn: game.pgn(), reason }; update(); }
+};
 btn('declineBtn').onclick = () => send({ t: 'decline' });
 btn('rematchBtn').onclick = () => send({ t: 'rematch' });
 

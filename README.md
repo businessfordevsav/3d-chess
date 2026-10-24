@@ -31,6 +31,7 @@ Rate limits (sign-ups, logins, connections, waiting rooms) are per client addres
 
 - Drag to orbit the camera and scroll to zoom. Click a piece to see its legal moves, then click a target square to move.
 - Moves animate, and there is a promotion picker, an undo button, and a list of captured pieces with the material score.
+- Draws follow FIDE rules: threefold repetition and the fifty-move rule are claimed with a **Claim draw** button (either player, online or local), while fivefold repetition, the 75-move rule, stalemate and insufficient material end the game by themselves.
 - Two players on one screen, with auto-flip so the board turns to whoever moves next.
 - Play a friend online: **Play a friend online** makes a private room with an unguessable link like `/g/5b15e7f0e6065acb`. Your friend opens it and you each get a colour. The server checks every move, and refreshing the page puts you back in your seat.
 - A menu at `/` with quick pairing against a random opponent (one queue per time control), private game links, local play, and a list of live matchmaking games anyone can watch (private friend games are not listed). Players can chat in a game; spectators can read the chat.
