@@ -53,6 +53,29 @@ docker compose restart app             # after editing .env
 docker logs traefik 2>&1 | grep -i acme | tail   # if the certificate doesn't arrive
 ```
 
+### Deploy on release (GitHub Actions)
+
+`.github/workflows/deploy.yml` deploys automatically when you **publish a release** on GitHub (Releases → Draft
+a new release → pick or create a tag such as `v1.0.0` → Publish). It runs `npm test` first; only if the tests pass
+does it run `deploy/deploy.sh` and wait for `https://<DOMAIN>/healthz` to answer `ok`. The Actions tab also has a
+**Run workflow** button to redeploy `main` by hand. A failed run leaves the site on the previous version and
+emails you.
+
+One-time setup:
+
+1. A key only for GitHub, on your computer: `ssh-keygen -t ed25519 -N "" -C github-deploy-3d-chess -f ~/.ssh/3d-chess-deploy`
+2. Allow it on the server: `ssh-copy-id -i ~/.ssh/3d-chess-deploy.pub root@72.61.231.244`
+3. In the GitHub repo, open **Settings → Secrets and variables → Actions** and add three repository secrets:
+
+| Secret | Value |
+|---|---|
+| `SSH_KEY` | the whole private key: `cat ~/.ssh/3d-chess-deploy` |
+| `SSH_KNOWN_HOSTS` | the server's host key: `ssh-keyscan -t ed25519 72.61.231.244` (should show fingerprint `SHA256:ErDV1Q+2JiCjtJA6qgm/TvRxJWeNYOpeI9KNkBqMV8E`) |
+| `SSH_HOST` | `root@72.61.231.244` |
+
+If the key ever leaks, delete its line (ending in `github-deploy-3d-chess`) from `/root/.ssh/authorized_keys` on the
+server and make a new one.
+
 ## 4. Backups
 
 The database (accounts, ratings, games) is one SQLite file in the `3d-chess_chess-data` volume. Back it up
