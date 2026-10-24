@@ -523,21 +523,26 @@ async function serveFile(req, res, file, path) {
   const info = await stat(join(ROOT, file));
   if (!info.isFile()) throw new Error('not a file');
   const page = file === 'index.html';
-  const etag = `W/"${info.size.toString(36)}-${Math.floor(info.mtimeMs).toString(36)}"`;
+  let etag = `W/"${info.size.toString(36)}-${Math.floor(info.mtimeMs).toString(36)}"`;
   const type = TYPES[extname(file)] ?? 'application/octet-stream';
   // the page revalidates every time (it changes with deploys); libraries, the model and images are cached for a day
   res.setHeader('Cache-Control', page ? 'no-cache' : 'public, max-age=86400');
-  res.setHeader('ETag', etag);
   if (path.startsWith('/g/')) res.setHeader('X-Robots-Tag', 'noindex, nofollow'); // private game links stay out of search results
   let body = await readFile(join(ROOT, file));
   if (page) {
-    body = Buffer.from(body.toString().replaceAll('__APP_URL__', APP_URL)); // absolute URLs for canonical, Open Graph, JSON-LD
+    let html = body.toString().replaceAll('__APP_URL__', APP_URL); // absolute URLs for canonical, Open Graph, JSON-LD
+    // AdSense's site-ownership tag (no script), so Google can review and verify the site before any ad unit exists
+    if (ADS) html = html.replace('<meta name="theme-color"', `<meta name="google-adsense-account" content="${ADS.client}">\n<meta name="theme-color"`);
+    body = Buffer.from(html);
     // hashed each time, so edits stay in sync; also on a 304, whose headers replace the cached ones,
     // or a refresh would get the hash-less default CSP and block the page's own scripts
     res.setHeader('Content-Security-Policy', csp(inlineScriptHashes(body)));
+    // the page's ETag comes from what is sent, not the file: APP_URL or ads settings change it without touching index.html
+    etag = `W/"${createHash('sha256').update(body).digest('base64url').slice(0, 22)}"`;
   }
+  res.setHeader('ETag', etag);
   if (req.headers['if-none-match'] === etag) return res.writeHead(304).end();
-  sendBody(req, res, 200, type, body, COMPRESSIBLE.has(extname(file)) && `${file}:${info.mtimeMs}`);
+  sendBody(req, res, 200, type, body, COMPRESSIBLE.has(extname(file)) && `${file}:${etag}`);
 }
 // cacheKey: compress once and keep it (files); true: compress every time (rendered pages); false: send as is
 function sendBody(req, res, status, type, body, cacheKey) {

@@ -24,7 +24,7 @@ export function sitePages(db, APP_URL, CONTACT_EMAIL, ADS) {
 <title>${esc(title)} – 3D Chess</title>
 <meta name="description" content="${esc(description)}">
 <link rel="canonical" href="${APP_URL}${path}">
-${noindex ? '<meta name="robots" content="noindex">\n' : ''}<meta name="theme-color" content="#0e0f12">
+${noindex ? '<meta name="robots" content="noindex">\n' : ''}${ADS ? `<meta name="google-adsense-account" content="${ADS.client}">\n` : ''}<meta name="theme-color" content="#0e0f12">
 <link rel="icon" href="/icon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="/apple-touch-icon.png">
 <link rel="manifest" href="/site.webmanifest">
