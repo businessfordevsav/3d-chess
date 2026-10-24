@@ -55,7 +55,7 @@ function client({ cookie, ip = freshIp(), origin } = {}) {
 const moves = pgn => pgn.replace(/\[.*?\]\s*/g, '').replace(/\s*(\*|1-0|0-1|1\/2-1\/2)$/, '').trim();
 const post = (path, body, headers = {}) => fetch(BASE + path, { method: 'POST', headers: { 'content-type': 'application/json', 'x-forwarded-for': freshIp(), ...headers }, body: JSON.stringify(body) });
 async function signup(name) {
-  const r = await post('/api/signup', { name, password: 'correct horse' });
+  const r = await post('/api/signup', { name, email: `${name}@example.test`, password: 'correct horse' });
   assert.equal(r.status, 201, `sign up ${name}`);
   return r.headers.get('set-cookie').split(';')[0];
 }
@@ -428,6 +428,22 @@ try {
     assert.ok(p.rating < 1500);
     closeAll(g); ghost.close(); other.close(); back.close();
   });
+  await check('guest accounts play unrated; the account they play keeps its rating', async () => {
+    const guestCookie = (await post('/api/guest', {})).headers.get('set-cookie').split(';')[0];
+    const full = await signup('vs_guest');
+    const g = await pair('none', guestCookie, full);
+    const s0 = g.w.last('state');
+    const guestColor = s0.players.w?.guest ? 'w' : 'b';
+    assert.match(s0.players[guestColor].name, /^Guest_/);
+    assert.equal(s0.players[guestColor].guest, true);
+    await play(g, 'w', 'e2', 'e4'); await play(g, 'b', 'e7', 'e5');
+    g[guestColor].send({ t: 'resign' });
+    const [s] = await Promise.all([g.w.next('state'), g.b.next('state')]);
+    assert.equal(s.result.changes, undefined, 'a guest game changed ratings');
+    const p = await profile('vs_guest');
+    assert.deepEqual([p.rating, p.games.length, p.games[0].rated], [1500, 1, 0]);
+    closeAll(g);
+  });
   await check('R-1: two accounts on the same network play unrated (anti-farming)', async () => {
     const ip = freshIp(), x = await signup('same_net_a'), y = await signup('same_net_b');
     const a = client({ cookie: x, ip });
@@ -510,9 +526,9 @@ try {
   });
   await check('F-10: sign-ups are limited per network; system-looking names are reserved', async () => {
     const ip = freshIp(), statuses = [];
-    for (let i = 0; i < 7; i++) statuses.push((await post('/api/signup', { name: `burst_${i}`, password: 'correct horse' }, { 'x-forwarded-for': ip })).status);
+    for (let i = 0; i < 7; i++) statuses.push((await post('/api/signup', { name: `burst_${i}`, email: `burst_${i}@example.test`, password: 'correct horse' }, { 'x-forwarded-for': ip })).status);
     assert.deepEqual(statuses, [201, 201, 201, 201, 201, 429, 429]);
-    for (const name of ['Guest', 'white', 'BLACK', 'Stockfish', 'admin']) assert.equal((await post('/api/signup', { name, password: 'correct horse' })).status, 400, name);
+    for (const name of ['Guest', 'white', 'BLACK', 'Stockfish', 'admin']) assert.equal((await post('/api/signup', { name, email: `${name}@example.test`, password: 'correct horse' })).status, 400, name);
   });
   await check('F-11: signing out ends the sockets opened with that session', async () => {
     const hank = await signup('hank');
@@ -611,7 +627,7 @@ try {
     await stopServer();
     await startServer({ TRUST_PROXY: '' });
     const statuses = [];
-    for (let i = 0; i < 7; i++) statuses.push((await post('/api/signup', { name: `xff_${i}`, password: 'correct horse' })).status); // a different X-F-F each time
+    for (let i = 0; i < 7; i++) statuses.push((await post('/api/signup', { name: `xff_${i}`, email: `xff_${i}@example.test`, password: 'correct horse' })).status); // a different X-F-F each time
     assert.deepEqual(statuses.slice(5), [429, 429]);
   });
 

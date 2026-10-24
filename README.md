@@ -23,6 +23,21 @@ three.js, chess.js and Stockfish are copied from `node_modules` into `vendor/` (
 npm run vendor
 ```
 
+### Accounts: email and Google sign-in
+
+The first screen asks players to sign in, create an account, or **continue as a guest**, and a friend opening a game link sees it before joining. A guest gets a real but temporary account with a generated name like `Guest_SwiftRook42` (opponents see it; guest games are unrated). From the profile a guest can **save the account** with a username, email and password, or with Google, and keep its games; signing out of an unsaved guest account removes it, and unused guest accounts are cleaned up after 30 days. Names starting with `Guest_` are reserved. The username field has a **Generate** button for a free chess-themed name and checks availability as you type. Players sign up with a username, an email and a password (or with Google), confirm their email by a link, and can reset a forgotten password by email. **Account settings** has change email, change or set password, connect or disconnect Google, the list of signed-in devices (sign out one or all others), and delete account. Reset and confirmation links are single-use, stored hashed, and expire (1 hour and 24 hours); a password reset or change signs out other devices.
+
+Configure with environment variables:
+
+| Variable | What it's for |
+|---|---|
+| `APP_URL` | The site's public address, used in emailed links and the Google redirect, e.g. `https://chess.example.com` |
+| `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS` | Your mail server (port 465 uses TLS directly; 587 upgrades with STARTTLS) |
+| `MAIL_FROM` | The sender, e.g. `3D Chess <no-reply@chess.example.com>` (defaults to `SMTP_USER`) |
+| `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | From a Google Cloud "OAuth client ID" (type: Web application). Add `APP_URL/auth/google/callback` as an authorized redirect URI. Without these the Google button is hidden. |
+
+Without `SMTP_HOST`, emails are printed to the server console as `MAIL {...}` lines, which is handy locally. In production (`NODE_ENV=production`) the server warns about this at startup, because reset links would end up in your logs.
+
 ### Deploying behind a proxy
 
 Rate limits (sign-ups, logins, connections, waiting rooms) are per client address. Behind a reverse proxy or a host like Render or Fly, every request appears to come from the proxy, so set `TRUST_PROXY=1` there to use the first `X-Forwarded-For` address instead. Never set it when clients connect to Node directly, or they could fake their address.

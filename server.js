@@ -8,6 +8,7 @@ import { promisify } from 'node:util';
 import { mkdirSync } from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
 import { WebSocketServer } from 'ws';
+import nodemailer from 'nodemailer';
 import { Chess } from 'chess.js';
 import { glicko2 } from './glicko2.js';
 
@@ -15,7 +16,7 @@ const ROOT = import.meta.dirname, PORT = process.env.PORT || 3000;
 const TYPES = { '.html': 'text/html; charset=utf-8', '.gltf': 'model/gltf+json', '.bin': 'application/octet-stream', '.jpg': 'image/jpeg', '.svg': 'image/svg+xml',
   '.js': 'text/javascript; charset=utf-8', '.txt': 'text/plain; charset=utf-8' };
 
-// --- database: accounts, sessions, finished games ---
+// --- database: accounts, sessions, one-time links, finished games ---
 const DB_FILE = process.env.DB_FILE || join(ROOT, 'data', 'chess.db');
 if (DB_FILE !== ':memory:') mkdirSync(join(DB_FILE, '..'), { recursive: true });
 const db = new DatabaseSync(DB_FILE);
@@ -30,38 +31,65 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS games_by_white ON games(white, ended);
   CREATE INDEX IF NOT EXISTS games_by_black ON games(black, ended);
   CREATE TABLE IF NOT EXISTS live_rooms (id TEXT PRIMARY KEY, data TEXT NOT NULL, touched INTEGER NOT NULL);
+  -- one-time links (email verification, password reset), stored hashed like session tokens
+  CREATE TABLE IF NOT EXISTS tokens (token TEXT PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id), kind TEXT NOT NULL,
+    email TEXT, expires INTEGER NOT NULL);
 `);
-// databases made before Glicko-2 lack the deviation and volatility columns
-const userCols = db.prepare('PRAGMA table_info(users)').all().map(c => c.name);
-if (!userCols.includes('rd')) db.exec('ALTER TABLE users ADD COLUMN rd REAL NOT NULL DEFAULT 350');
-if (!userCols.includes('vol')) db.exec('ALTER TABLE users ADD COLUMN vol REAL NOT NULL DEFAULT 0.06');
-// what other players and the page see: a rounded rating, flagged "?" while it is still uncertain
-const publicUser = u => u && { id: u.id, name: u.name, rating: Math.round(u.rating), provisional: u.rd > 110 };
+// columns added after the first release; existing databases are upgraded in place
+const addColumn = (table, col, type) => {
+  if (!db.prepare(`PRAGMA table_info(${table})`).all().some(c => c.name === col)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${col} ${type}`);
+};
+addColumn('users', 'rd', 'REAL NOT NULL DEFAULT 350');
+addColumn('users', 'vol', 'REAL NOT NULL DEFAULT 0.06');
+addColumn('users', 'email', 'TEXT');
+addColumn('users', 'email_verified', 'INTEGER NOT NULL DEFAULT 0');
+addColumn('users', 'google_sub', 'TEXT'); // Google's stable account id, when linked
+addColumn('users', 'guest', 'INTEGER NOT NULL DEFAULT 0'); // a temporary guest account, until it is saved
+addColumn('sessions', 'ua', 'TEXT');
+addColumn('sessions', 'last_seen', 'INTEGER');
+db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS users_email ON users(email COLLATE NOCASE);
+  CREATE UNIQUE INDEX IF NOT EXISTS users_google ON users(google_sub);`);
+
+// what other players and the page see: a rounded rating, flagged "?" while it is still uncertain (never the email)
+const publicUser = u => u && { id: u.id, name: u.name, rating: Math.round(u.rating), provisional: u.rd > 110, guest: !!u.guest };
+// what the signed-in user sees about themselves
+const selfUser = u => u && { ...publicUser(u), hasEmail: !!u.email, emailVerified: !!u.email_verified };
 const SESSION_MS = 30 * 864e5;
-const sha = t => createHash('sha256').update(t).digest('hex'); // session tokens are stored hashed
+const sha = t => createHash('sha256').update(t).digest('hex'); // tokens are stored hashed: a database leak doesn't hand out logins
 // scrypt runs on the libuv thread pool, so hashing never blocks game traffic on the event loop
 const scryptAsync = promisify(scrypt);
 async function hashPassword(pw) {
   const salt = randomBytes(16).toString('hex');
   return `${salt}:${(await scryptAsync(pw, salt, 64)).toString('hex')}`;
 }
-async function checkPassword(pw, stored) {
-  const [salt, key] = stored.split(':');
-  return timingSafeEqual(await scryptAsync(pw, salt, 64), Buffer.from(key, 'hex'));
-}
 const DUMMY_HASH = `${'0'.repeat(32)}:${'0'.repeat(128)}`; // checked for unknown names so a miss takes as long as a hit
+async function checkPassword(pw, stored) {
+  const [salt, key] = (stored || DUMMY_HASH).split(':'); // '' = no password (Google-only account): never matches
+  const ok = timingSafeEqual(await scryptAsync(pw, salt, 64), Buffer.from(key, 'hex'));
+  return ok && !!stored;
+}
 const cookies = req => Object.fromEntries((req.headers.cookie ?? '').split(';').map(p => p.trim().split('=')).filter(p => p.length === 2));
 function userFromReq(req) {
   const sid = cookies(req).sid;
-  return sid ? db.prepare(`SELECT u.id, u.name, u.rating, u.rd, u.vol FROM sessions s JOIN users u ON u.id = s.user_id
-    WHERE s.token = ? AND s.created > ?`).get(sha(sid), Date.now() - SESSION_MS) ?? null : null;
+  if (!sid) return null;
+  const u = db.prepare(`SELECT u.*, s.rowid AS session_id, s.last_seen FROM sessions s JOIN users u ON u.id = s.user_id
+    WHERE s.token = ? AND s.created > ?`).get(sha(sid), Date.now() - SESSION_MS);
+  if (u && Date.now() - (u.last_seen ?? 0) > 10 * 6e4) db.prepare('UPDATE sessions SET last_seen = ? WHERE token = ?').run(Date.now(), sha(sid)); // "last active", at most every 10 min
+  return u ?? null;
 }
 // HTTPS directly, or behind a proxy/host (Render, Fly, nginx) that terminates TLS and says so
 const cookieFlags = req => 'HttpOnly; SameSite=Lax; Path=/' + (req.socket.encrypted || req.headers['x-forwarded-proto'] === 'https' ? '; Secure' : '');
 function startSession(req, res, user) {
   const sid = randomBytes(32).toString('hex');
-  db.prepare('INSERT INTO sessions VALUES (?, ?, ?)').run(sha(sid), user.id, Date.now());
+  db.prepare('INSERT INTO sessions (token, user_id, created, ua, last_seen) VALUES (?, ?, ?, ?, ?)')
+    .run(sha(sid), user.id, Date.now(), String(req.headers['user-agent'] ?? '').slice(0, 200), Date.now());
   res.setHeader('Set-Cookie', `sid=${sid}; ${cookieFlags(req)}; Max-Age=${SESSION_MS / 1000}`);
+}
+// sign a user out everywhere (optionally keeping one session), including open game connections
+function endSessions(userId, keepHash = null) {
+  const gone = db.prepare('SELECT token FROM sessions WHERE user_id = ? AND token IS NOT ?').all(userId, keepHash).map(r => r.token);
+  db.prepare('DELETE FROM sessions WHERE user_id = ? AND token IS NOT ?').run(userId, keepHash);
+  for (const ws of wss.clients) if (gone.includes(ws.sid)) ws.close(4001, 'signed out');
 }
 
 // Behind a reverse proxy every request comes from the proxy's address; set TRUST_PROXY=1 there so
@@ -80,10 +108,87 @@ function limiter(max, ms) {
   return allow;
 }
 const signupLimit = limiter(5, 60 * 6e4), loginLimit = limiter(20, 15 * 6e4);
+const mailIpLimit = limiter(5, 60 * 6e4), mailUserLimit = limiter(3, 60 * 6e4); // reset/verification emails
+const guestLimit = limiter(10, 60 * 6e4), usernameLimit = limiter(120, 6e4); // new guest accounts; username checks/suggestions
+const LIMITERS = [signupLimit, loginLimit, mailIpLimit, mailUserLimit, guestLimit, usernameLimit];
 const RESERVED = /^(guest|white|black|stockfish|admin|administrator|moderator|system|server|3dchess)$/i; // names that read like system labels
+const NAME = /^[A-Za-z0-9_]{3,20}$/;
+const GUEST_PREFIX = /^guest_/i; // guest accounts are called Guest_…; nobody else may take a name like that
+// why a username can't be chosen, or null if it's free
+function usernameProblem(name) {
+  if (!NAME.test(name)) return 'Usernames are 3-20 letters, digits or _.';
+  if (RESERVED.test(name) || GUEST_PREFIX.test(name)) return 'That username is reserved. Pick another one.';
+  if (db.prepare('SELECT 1 FROM users WHERE name = ?').get(name)) return 'That username is taken.';
+  return null;
+}
+// chess-flavoured names like SwiftKnight42; with a prefix for guests (Guest_SwiftKnight42, still 20 characters at most)
+const ADJECTIVES = ['Swift', 'Bold', 'Quiet', 'Clever', 'Brave', 'Lucky', 'Sharp', 'Calm', 'Royal', 'Silent', 'Rapid', 'Steady',
+  'Golden', 'Shadow', 'Iron', 'Silver', 'Noble', 'Wild', 'Cosmic', 'Mighty', 'Hidden', 'Gentle', 'Fierce', 'Witty'];
+const PIECES = ['Pawn', 'Rook', 'Knight', 'Bishop', 'Queen', 'King', 'Gambit', 'Castle', 'Fork', 'Pin', 'Check', 'Tempo'];
+function generateUsername(prefix = '') {
+  const pick = list => list[randomBytes(1)[0] % list.length];
+  for (let i = 0; i < 200; i++) {
+    const name = `${prefix}${pick(ADJECTIVES)}${pick(PIECES)}${randomBytes(1)[0] % 100}`;
+    if (name.length <= 20 && !db.prepare('SELECT 1 FROM users WHERE name = ?').get(name)) return name;
+  }
+  return `${prefix}Player${randomBytes(3).readUIntBE(0, 3)}`.slice(0, 20); // practically never reached
+}
+// removes an account; its games stay in opponents' histories without its name
+function deleteAccount(userId) {
+  db.exec('BEGIN IMMEDIATE');
+  try {
+    db.prepare('UPDATE games SET white = NULL WHERE white = ?').run(userId);
+    db.prepare('UPDATE games SET black = NULL WHERE black = ?').run(userId);
+    db.prepare('DELETE FROM tokens WHERE user_id = ?').run(userId);
+    endSessions(userId);
+    db.prepare('DELETE FROM users WHERE id = ?').run(userId);
+    db.exec('COMMIT');
+  } catch (e) { db.exec('ROLLBACK'); throw e; }
+  for (const r of rooms.values()) for (const c of COLORS) if (r.seats[c]?.user?.id === userId) r.seats[c].user = null; // live seats become plain guests
+}
+// deliberately strict: no quotes, brackets, commas or semicolons, so mail-header parsing can't be tricked
+const EMAIL = /^[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)+$/;
+const validEmail = e => e.length <= 254 && EMAIL.test(e);
+const validPassword = p => p.length >= 8 && p.length <= 200;
 
-// --- JSON API: sign up, sign in, sign out, profiles ---
+// --- email: verification and password-reset links, over SMTP ---
+// Without SMTP_HOST (local development, tests) messages go to the console instead, as one "MAIL {json}" line.
+const APP_URL = (process.env.APP_URL || `http://localhost:${PORT}`).replace(/\/+$/, '');
+const mailer = process.env.SMTP_HOST && nodemailer.createTransport({
+  host: process.env.SMTP_HOST, port: Number(process.env.SMTP_PORT || 587), secure: Number(process.env.SMTP_PORT) === 465,
+  auth: process.env.SMTP_USER ? { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS } : undefined,
+});
+if (!mailer && process.env.NODE_ENV === 'production') console.warn('warning: SMTP_HOST is not set, so emails (including reset links) are written to the log');
+async function sendMail(to, subject, text) {
+  try {
+    if (mailer) await mailer.sendMail({ from: process.env.MAIL_FROM || process.env.SMTP_USER, to, subject, text });
+    else console.log('MAIL ' + JSON.stringify({ to, subject, text }));
+  } catch (e) { console.error('sending email failed:', e.message); } // never leak SMTP errors to the client
+}
+// one live link per user and purpose; single use; stored hashed
+function issueToken(userId, kind, ms, email = null) {
+  const t = randomBytes(32).toString('hex');
+  db.prepare('DELETE FROM tokens WHERE user_id = ? AND kind = ?').run(userId, kind);
+  db.prepare('INSERT INTO tokens VALUES (?, ?, ?, ?, ?)').run(sha(t), userId, kind, email, Date.now() + ms);
+  return t;
+}
+function useToken(t, kind) {
+  if (typeof t !== 'string' || !/^[0-9a-f]{64}$/.test(t)) return null;
+  const row = db.prepare('SELECT * FROM tokens WHERE token = ? AND kind = ?').get(sha(t), kind);
+  if (!row) return null;
+  db.prepare('DELETE FROM tokens WHERE token = ?').run(row.token);
+  return row.expires > Date.now() ? row : null;
+}
+const sendVerification = (user, email) => sendMail(email, 'Confirm your email for 3D Chess',
+  `Hi ${user.name},\n\nConfirm this email address for your 3D Chess account:\n${APP_URL}/?verify=${issueToken(user.id, 'verify', 864e5, email)}\n\n` +
+  `The link works once and expires in 24 hours. If you didn't sign up, ignore this message.`);
+const sendReset = user => sendMail(user.email, 'Reset your 3D Chess password',
+  `Hi ${user.name},\n\nChoose a new password here:\n${APP_URL}/?reset=${issueToken(user.id, 'reset', 36e5)}\n\n` +
+  `The link works once and expires in 1 hour. If you didn't ask for this, ignore this message; your password stays the same.`);
+
+// --- JSON API: accounts, sessions, profiles ---
 const json = (res, code, body) => res.writeHead(code, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }).end(JSON.stringify(body));
+const redirect = (res, to) => res.writeHead(302, { Location: to, 'Cache-Control': 'no-store' }).end();
 // Sent with every response. Scripts come only from this site (three.js, chess.js and Stockfish are served
 // from vendor/); the page's own inline scripts (import map, module script) are allowed by their exact hash,
 // so no other inline script can run. Only the fonts come from Google.
@@ -96,47 +201,68 @@ const SECURITY_HEADERS = {
   'Content-Security-Policy': csp(),
   'X-Frame-Options': 'DENY', // no framing: stops clickjacking of Resign and similar buttons
   'X-Content-Type-Options': 'nosniff',
-  'Referrer-Policy': 'same-origin', // game links in the URL don't leak to the font host
+  'Referrer-Policy': 'same-origin', // game links and one-time links in the URL don't leak to the font host
 };
 async function readJson(req) {
   let body = '';
   for await (const chunk of req) if ((body += chunk).length > 1e4) throw new Error('too big');
-  return JSON.parse(body || '{}');
+  const v = JSON.parse(body || '{}');
+  if (!v || typeof v !== 'object' || Array.isArray(v)) throw new Error('not an object');
+  return v;
 }
+const str = v => typeof v === 'string' ? v : ''; // inputs are strings or nothing
 
 async function api(req, res, path) {
   if (req.method === 'POST') {
-    // JSON-only POSTs can't be sent by a plain cross-site form, which keeps sign-in safe from CSRF
+    // JSON-only POSTs can't be sent by a plain cross-site form, which keeps these endpoints safe from CSRF
     if (!req.headers['content-type']?.startsWith('application/json')) return json(res, 415, { error: 'Send JSON.' });
     let body;
     try { body = await readJson(req); } catch { return json(res, 400, { error: 'Bad request.' }); }
-    const name = String(body.name ?? '').trim(), password = String(body.password ?? '');
+    const ip = clientIp(req);
 
     if (path === '/api/signup') {
-      if (!/^[A-Za-z0-9_]{3,20}$/.test(name)) return json(res, 400, { error: 'Names are 3-20 letters, digits or _.' });
-      if (RESERVED.test(name)) return json(res, 400, { error: 'That name is reserved. Pick another one.' });
-      if (password.length < 8 || password.length > 200) return json(res, 400, { error: 'Passwords need at least 8 characters.' });
-      if (!signupLimit(clientIp(req))) return json(res, 429, { error: 'Too many new accounts from your network. Try again later.' });
+      const name = str(body.name).trim(), email = str(body.email).trim(), password = str(body.password);
+      const problem = usernameProblem(name);
+      if (problem) return json(res, problem.includes('taken') ? 409 : 400, { error: problem });
+      if (!validEmail(email)) return json(res, 400, { error: 'Enter a valid email address. It is used to reset your password.' });
+      if (!validPassword(password)) return json(res, 400, { error: 'Passwords need at least 8 characters.' });
+      if (!signupLimit(ip)) return json(res, 429, { error: 'Too many new accounts from your network. Try again later.' });
       const hash = await hashPassword(password);
       try {
-        const { lastInsertRowid } = db.prepare('INSERT INTO users (name, hash, created) VALUES (?, ?, ?)').run(name, hash, Date.now());
-        const user = { id: Number(lastInsertRowid), name, rating: 1500, rd: 350 };
+        const { lastInsertRowid } = db.prepare('INSERT INTO users (name, hash, created, email) VALUES (?, ?, ?, ?)').run(name, hash, Date.now(), email);
+        const user = db.prepare('SELECT * FROM users WHERE id = ?').get(Number(lastInsertRowid));
         startSession(req, res, user);
-        return json(res, 201, { user: publicUser(user) });
+        await sendVerification(user, email);
+        return json(res, 201, { user: selfUser(user) });
       } catch {
-        return json(res, 409, { error: 'That name is taken.' });
+        const nameTaken = db.prepare('SELECT 1 FROM users WHERE name = ?').get(name);
+        return json(res, 409, { error: nameTaken ? 'That username is taken.' : 'An account already uses that email. Sign in, or reset your password.' });
       }
     }
     if (path === '/api/login') {
-      if (!loginLimit(clientIp(req))) return json(res, 429, { error: 'Too many attempts. Try again in a few minutes.' });
-      const row = db.prepare('SELECT id, name, rating, rd, hash FROM users WHERE name = ?').get(name);
-      const ok = await checkPassword(password, row?.hash ?? DUMMY_HASH); // always hash, so timing doesn't reveal which names exist
-      if (!row || !ok) return json(res, 401, { error: 'Wrong name or password.' });
+      if (!loginLimit(ip)) return json(res, 429, { error: 'Too many attempts. Try again in a few minutes.' });
+      const login = str(body.login ?? body.name).trim(), password = str(body.password);
+      const row = db.prepare(`SELECT * FROM users WHERE ${login.includes('@') ? 'email' : 'name'} = ? COLLATE NOCASE`).get(login); // emails match in any case, like names
+      const ok = await checkPassword(password, row ? row.hash : DUMMY_HASH); // always hash, so timing doesn't reveal which accounts exist
+      if (!row || !ok) return json(res, 401, { error: 'Wrong username, email or password. Signed up with Google? Use Continue with Google.' });
       startSession(req, res, row);
-      return json(res, 200, { user: publicUser(row) });
+      return json(res, 200, { user: selfUser(row) });
+    }
+    if (path === '/api/guest') {
+      if (userFromReq(req)) return json(res, 400, { error: 'You are already signed in.' });
+      if (!guestLimit(ip)) return json(res, 429, { error: 'Too many guest accounts from your network. Try again later.' });
+      const { lastInsertRowid } = db.prepare('INSERT INTO users (name, hash, created, guest) VALUES (?, ?, ?, 1)').run(generateUsername('Guest_'), '', Date.now());
+      const user = db.prepare('SELECT * FROM users WHERE id = ?').get(Number(lastInsertRowid));
+      startSession(req, res, user);
+      return json(res, 201, { user: selfUser(user) });
     }
     if (path === '/api/logout') {
-      const sid = cookies(req).sid;
+      const sid = cookies(req).sid, u = userFromReq(req);
+      if (u?.guest) { // an unsaved guest account can't be signed back into, so signing out ends it
+        deleteAccount(u.id);
+        res.setHeader('Set-Cookie', `sid=; ${cookieFlags(req)}; Max-Age=0`);
+        return json(res, 200, { user: null, deleted: true });
+      }
       if (sid) {
         db.prepare('DELETE FROM sessions WHERE token = ?').run(sha(sid));
         for (const ws of wss.clients) if (ws.sid === sha(sid)) ws.close(4001, 'signed out'); // the session is gone for open sockets too
@@ -144,12 +270,129 @@ async function api(req, res, path) {
       res.setHeader('Set-Cookie', `sid=; ${cookieFlags(req)}; Max-Age=0`);
       return json(res, 200, { user: null });
     }
+    if (path === '/api/verify') {
+      const row = useToken(body.token, 'verify');
+      const u = row && db.prepare('SELECT * FROM users WHERE id = ?').get(row.user_id);
+      if (!u || u.email !== row.email) return json(res, 400, { error: 'This confirmation link has expired or was already used.' });
+      db.prepare('UPDATE users SET email_verified = 1 WHERE id = ?').run(u.id);
+      return json(res, 200, { ok: true });
+    }
+    if (path === '/api/forgot') {
+      const email = str(body.email).trim();
+      // the same answer whether or not the address has an account, so this can't be used to find accounts
+      if (!validEmail(email)) return json(res, 400, { error: 'Enter a valid email address.' });
+      if (!mailIpLimit(ip)) return json(res, 429, { error: 'Too many requests. Try again later.' });
+      const u = db.prepare('SELECT * FROM users WHERE email = ? COLLATE NOCASE').get(email);
+      if (u && mailUserLimit(`reset:${u.id}`)) await sendReset(u);
+      return json(res, 200, { ok: true, message: 'If that email belongs to an account, a reset link is on its way.' });
+    }
+    if (path === '/api/reset') {
+      const password = str(body.password);
+      if (!validPassword(password)) return json(res, 400, { error: 'Passwords need at least 8 characters.' });
+      const row = useToken(body.token, 'reset');
+      const u = row && db.prepare('SELECT * FROM users WHERE id = ?').get(row.user_id);
+      if (!u) return json(res, 400, { error: 'This reset link has expired or was already used. Ask for a new one.' });
+      // opening the link proves the email works, so it counts as verified; every old session is signed out
+      db.prepare('UPDATE users SET hash = ?, email_verified = 1 WHERE id = ?').run(await hashPassword(password), u.id);
+      endSessions(u.id);
+      startSession(req, res, u);
+      return json(res, 200, { user: selfUser({ ...u, email_verified: 1 }) });
+    }
+
+    // --- signed-in account management ---
+    if (path.startsWith('/api/account/')) {
+      const me = userFromReq(req);
+      if (!me) return json(res, 401, { error: 'Sign in first.' });
+      const myHash = sha(cookies(req).sid);
+      // changes that could lock someone out need the current password (Google-only accounts have none)
+      const confirmed = async () => !me.hash || await checkPassword(str(body.current), me.hash);
+
+      if (path === '/api/account/upgrade') {
+        if (!me.guest) return json(res, 400, { error: 'This account is already saved.' });
+        const name = str(body.name).trim(), email = str(body.email).trim(), password = str(body.password);
+        const problem = usernameProblem(name);
+        if (problem) return json(res, problem.includes('taken') ? 409 : 400, { error: problem });
+        if (!validEmail(email)) return json(res, 400, { error: 'Enter a valid email address. It is used to reset your password.' });
+        if (!validPassword(password)) return json(res, 400, { error: 'Passwords need at least 8 characters.' });
+        try {
+          db.prepare('UPDATE users SET name = ?, email = ?, email_verified = 0, hash = ?, guest = 0 WHERE id = ?').run(name, email, await hashPassword(password), me.id);
+        } catch {
+          return json(res, 409, { error: db.prepare('SELECT 1 FROM users WHERE name = ?').get(name) ? 'That username is taken.' : 'An account already uses that email.' });
+        }
+        const saved = db.prepare('SELECT * FROM users WHERE id = ?').get(me.id);
+        for (const r of rooms.values()) for (const c of COLORS) if (r.seats[c]?.user?.id === me.id) r.seats[c].user.name = name; // live games show the new name
+        await sendVerification(saved, email);
+        return json(res, 200, { user: selfUser(saved) });
+      }
+      if (path === '/api/account/password') {
+        const password = str(body.password);
+        if (!validPassword(password)) return json(res, 400, { error: 'Passwords need at least 8 characters.' });
+        if (!await confirmed()) return json(res, 403, { error: 'Your current password is not right.' });
+        db.prepare('UPDATE users SET hash = ? WHERE id = ?').run(await hashPassword(password), me.id);
+        endSessions(me.id, myHash); // other devices must sign in with the new password
+        return json(res, 200, { ok: true });
+      }
+      if (path === '/api/account/email') {
+        const email = str(body.email).trim();
+        if (!validEmail(email)) return json(res, 400, { error: 'Enter a valid email address.' });
+        if (!await confirmed()) return json(res, 403, { error: 'Your current password is not right.' });
+        if (!mailUserLimit(`verify:${me.id}`)) return json(res, 429, { error: 'Too many emails. Try again later.' });
+        try { db.prepare('UPDATE users SET email = ?, email_verified = 0 WHERE id = ?').run(email, me.id); }
+        catch { return json(res, 409, { error: 'Another account already uses that email.' }); }
+        await sendVerification(me, email);
+        return json(res, 200, { ok: true });
+      }
+      if (path === '/api/account/resend') {
+        if (!me.email || me.email_verified) return json(res, 400, { error: 'There is nothing to confirm.' });
+        if (!mailUserLimit(`verify:${me.id}`)) return json(res, 429, { error: 'Too many emails. Try again later.' });
+        await sendVerification(me, me.email);
+        return json(res, 200, { ok: true });
+      }
+      if (path === '/api/account/sessions/revoke') {
+        const s = db.prepare('SELECT token FROM sessions WHERE rowid = ? AND user_id = ?').get(Number(body.id), me.id);
+        if (!s) return json(res, 404, { error: 'No such session.' });
+        db.prepare('DELETE FROM sessions WHERE token = ?').run(s.token);
+        for (const ws of wss.clients) if (ws.sid === s.token) ws.close(4001, 'signed out');
+        return json(res, 200, { ok: true });
+      }
+      if (path === '/api/account/sessions/revoke-others') {
+        endSessions(me.id, myHash);
+        return json(res, 200, { ok: true });
+      }
+      if (path === '/api/account/google/unlink') {
+        if (!me.hash) return json(res, 400, { error: 'Set a password first, or you could not sign in at all.' });
+        db.prepare('UPDATE users SET google_sub = NULL WHERE id = ?').run(me.id);
+        return json(res, 200, { ok: true });
+      }
+      if (path === '/api/account/delete') {
+        const ok = me.hash ? await checkPassword(str(body.current), me.hash) : str(body.confirm) === me.name;
+        if (!ok) return json(res, 403, { error: me.hash ? 'Your current password is not right.' : 'Type your username to confirm.' });
+        deleteAccount(me.id);
+        res.setHeader('Set-Cookie', `sid=; ${cookieFlags(req)}; Max-Age=0`);
+        return json(res, 200, { ok: true });
+      }
+    }
   }
   if (req.method === 'GET') {
-    if (path === '/api/me') return json(res, 200, { user: publicUser(userFromReq(req)) });
+    if (path === '/api/me') return json(res, 200, { user: selfUser(userFromReq(req)) });
+    if (path === '/api/config') return json(res, 200, { google: !!GOOGLE.id });
+    if (path === '/api/usernames/check' || path === '/api/usernames/suggest') {
+      if (!usernameLimit(clientIp(req))) return json(res, 429, { error: 'Slow down a little.' });
+      if (path.endsWith('suggest')) return json(res, 200, { name: generateUsername() });
+      const problem = usernameProblem(String(new URL(req.url, 'http://x').searchParams.get('name') ?? '').trim());
+      return json(res, 200, { available: !problem, error: problem });
+    }
+    if (path === '/api/account') {
+      const me = userFromReq(req);
+      if (!me) return json(res, 401, { error: 'Sign in first.' });
+      const sessions = db.prepare('SELECT rowid AS id, ua, created, last_seen FROM sessions WHERE user_id = ? AND created > ? ORDER BY last_seen DESC')
+        .all(me.id, Date.now() - SESSION_MS).map(s => ({ id: s.id, ua: s.ua, created: s.created, lastSeen: s.last_seen, current: s.id === me.session_id }));
+      return json(res, 200, { name: me.name, guest: !!me.guest, email: me.email, emailVerified: !!me.email_verified, hasPassword: !!me.hash,
+        google: !!me.google_sub, googleAvailable: !!GOOGLE.id, created: me.created, sessions });
+    }
     const profile = path.match(/^\/api\/users\/([A-Za-z0-9_]{3,20})$/);
     if (profile) {
-      const u = db.prepare('SELECT id, name, rating, rd, created FROM users WHERE name = ?').get(profile[1]);
+      const u = db.prepare('SELECT id, name, rating, rd, guest, created FROM users WHERE name = ?').get(profile[1]);
       if (!u) return json(res, 404, { error: 'No such player.' });
       const games = db.prepare(`SELECT g.id, g.tc, g.winner, g.reason, g.rated, g.ended, g.white_change, g.black_change,
           wu.name AS white, bu.name AS black FROM games g LEFT JOIN users wu ON wu.id = g.white LEFT JOIN users bu ON bu.id = g.black
@@ -165,11 +408,92 @@ async function api(req, res, path) {
   json(res, 404, { error: 'Not found.' });
 }
 
+// --- Sign in with Google (OAuth 2.0 authorization code flow, with state and PKCE) ---
+// Set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET; the authorized redirect URI is APP_URL + /auth/google/callback.
+// The three endpoint URLs can be overridden for tests only.
+const GOOGLE = {
+  id: process.env.GOOGLE_CLIENT_ID, secret: process.env.GOOGLE_CLIENT_SECRET,
+  auth: process.env.GOOGLE_AUTH_URL || 'https://accounts.google.com/o/oauth2/v2/auth',
+  token: process.env.GOOGLE_TOKEN_URL || 'https://oauth2.googleapis.com/token',
+  userinfo: process.env.GOOGLE_USERINFO_URL || 'https://openidconnect.googleapis.com/v1/userinfo',
+};
+// a username from the Google profile: letters, digits and _ only, made unique with a number if needed
+function nameFromGoogle(info, gEmail) {
+  let base = String(info.name || gEmail?.split('@')[0] || 'player').replace(/[^A-Za-z0-9_]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 15);
+  if (base.length < 3 || RESERVED.test(base) || GUEST_PREFIX.test(base)) base = `player_${base}`.slice(0, 15);
+  let name = base;
+  for (let i = 0; db.prepare('SELECT 1 FROM users WHERE name = ?').get(name) && i < 50; i++) name = `${base}${randomBytes(2).readUInt16BE() % 10000}`;
+  return name;
+}
+async function google(req, res, url) {
+  if (!GOOGLE.id) return redirect(res, '/?auth=google-off');
+  const redirectUri = `${APP_URL}/auth/google/callback`;
+  if (url.pathname === '/auth/google') {
+    const state = randomBytes(24).toString('base64url'), verifier = randomBytes(32).toString('base64url');
+    const linking = url.searchParams.get('link') === '1' ? '1' : '0'; // connect Google to the signed-in account
+    // state (against login CSRF) and the PKCE verifier live in a short-lived cookie only this browser has
+    res.setHeader('Set-Cookie', `g_oauth=${state}.${verifier}.${linking}; ${cookieFlags(req)}; Max-Age=600`);
+    const q = new URLSearchParams({ client_id: GOOGLE.id, redirect_uri: redirectUri, response_type: 'code', scope: 'openid email profile', state,
+      code_challenge: createHash('sha256').update(verifier).digest('base64url'), code_challenge_method: 'S256', prompt: 'select_account' });
+    return redirect(res, `${GOOGLE.auth}?${q}`);
+  }
+  // the callback
+  const [state, verifier, linking] = (cookies(req).g_oauth ?? '').split('.');
+  res.setHeader('Set-Cookie', `g_oauth=; ${cookieFlags(req)}; Max-Age=0`);
+  const code = url.searchParams.get('code');
+  if (!state || !verifier || url.searchParams.get('state') !== state || !code) return redirect(res, '/?auth=failed');
+  let info;
+  try {
+    const t = await fetch(GOOGLE.token, { method: 'POST', signal: AbortSignal.timeout(10_000), headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({ code, client_id: GOOGLE.id, client_secret: GOOGLE.secret ?? '', redirect_uri: redirectUri, grant_type: 'authorization_code', code_verifier: verifier }) });
+    if (!t.ok) throw new Error(`token endpoint ${t.status}`);
+    const { access_token } = await t.json();
+    const u = await fetch(GOOGLE.userinfo, { signal: AbortSignal.timeout(10_000), headers: { authorization: `Bearer ${access_token}` } });
+    if (!u.ok) throw new Error(`userinfo endpoint ${u.status}`);
+    info = await u.json();
+  } catch (e) {
+    console.error('Google sign-in failed:', e.message);
+    return redirect(res, '/?auth=failed');
+  }
+  const sub = typeof info.sub === 'string' && info.sub, gEmail = typeof info.email === 'string' && validEmail(info.email) && info.email_verified === true ? info.email : null;
+  if (!sub) return redirect(res, '/?auth=failed');
+  let user = db.prepare('SELECT * FROM users WHERE google_sub = ?').get(sub);
+  const current = userFromReq(req);
+  if (linking === '1' && current) {
+    if (user && user.id !== current.id) return redirect(res, '/?auth=google-in-use');
+    db.prepare('UPDATE users SET google_sub = ? WHERE id = ?').run(sub, current.id);
+    if (current.guest) { // saving a guest account with Google: it becomes a full account named after the Google profile
+      const emailFree = gEmail && !db.prepare('SELECT 1 FROM users WHERE email = ? COLLATE NOCASE AND id != ?').get(gEmail, current.id);
+      const name = nameFromGoogle(info, gEmail);
+      db.prepare('UPDATE users SET guest = 0, name = ?, email = ?, email_verified = ? WHERE id = ?').run(name, emailFree ? gEmail : null, emailFree ? 1 : 0, current.id);
+      for (const r of rooms.values()) for (const c of COLORS) if (r.seats[c]?.user?.id === current.id) r.seats[c].user.name = name;
+      return redirect(res, '/?auth=google-saved');
+    }
+    return redirect(res, '/?auth=google-linked');
+  }
+  // an existing account with the same email, confirmed on both sides, is the same person: link it
+  if (!user && gEmail) {
+    const byEmail = db.prepare('SELECT * FROM users WHERE email = ? COLLATE NOCASE AND email_verified = 1 AND google_sub IS NULL').get(gEmail);
+    if (byEmail) { db.prepare('UPDATE users SET google_sub = ? WHERE id = ?').run(sub, byEmail.id); user = byEmail; }
+  }
+  if (!user) {
+    if (!signupLimit(clientIp(req))) return redirect(res, '/?auth=too-many');
+    const name = nameFromGoogle(info, gEmail);
+    const emailFree = gEmail && !db.prepare('SELECT 1 FROM users WHERE email = ? COLLATE NOCASE').get(gEmail);
+    const { lastInsertRowid } = db.prepare('INSERT INTO users (name, hash, created, email, email_verified, google_sub) VALUES (?, ?, ?, ?, ?, ?)')
+      .run(name, '', Date.now(), emailFree ? gEmail : null, emailFree ? 1 : 0, sub);
+    user = db.prepare('SELECT * FROM users WHERE id = ?').get(Number(lastInsertRowid));
+  }
+  startSession(req, res, user);
+  return redirect(res, '/?auth=google');
+}
+
 const server = createServer(async (req, res) => {
   for (const [k, v] of Object.entries(SECURITY_HEADERS)) res.setHeader(k, v);
   let path = '';
   try { path = normalize(decodeURIComponent(new URL(req.url, 'http://x').pathname)); } catch {}
   if (path.startsWith('/api/')) return api(req, res, path).catch(() => json(res, 500, { error: 'Server error.' }));
+  if (path === '/auth/google' || path === '/auth/google/callback') return google(req, res, new URL(req.url, 'http://x')).catch(() => redirect(res, '/?auth=failed'));
   // only the page, its icon, the model folder and the vendored libraries are public
   // (browsers that still ask for /favicon.ico get the same icon)
   const file = path === '/' || /^\/g\/[a-z0-9]+$/.test(path) ? 'index.html' : path === '/icon.svg' || path === '/favicon.ico' ? 'icon.svg'
@@ -249,7 +573,7 @@ function finish(room, winner, reason) {
 function saveGame(room) {
   const g = room.game, r = room.result, w = room.seats.w?.user, b = room.seats.b?.user;
   if (r.reason === 'aborted' || !g.history().length || (!w && !b)) return; // nothing worth keeping
-  const eligible = !!(w && b && w.id !== b.id && g.history().length >= 2);
+  const eligible = !!(w && b && w.id !== b.id && !w.guest && !b.guest && g.history().length >= 2); // guest accounts play unrated
   if (eligible && room.seats.w.ip && room.seats.w.ip === room.seats.b.ip) r.unrated = 'both players on the same network';
   else if (eligible && db.prepare(`SELECT COUNT(*) AS n FROM games WHERE rated = 1 AND ended > ?
       AND ((white = ? AND black = ?) OR (white = ? AND black = ?))`).get(Date.now() - 864e5, w.id, b.id, b.id, w.id).n >= LIMITS.ratedVsSamePerDay)
@@ -323,7 +647,7 @@ function schedule(room) {
 
 const players = room => Object.fromEntries(COLORS.map(c => {
   const u = room.seats[c]?.user;
-  return [c, u ? { name: u.name, rating: Math.round(u.rating), provisional: u.rd > 110 } : null]; // null = guest
+  return [c, u ? { name: u.name, rating: Math.round(u.rating), provisional: u.rd > 110, guest: !!u.guest } : null]; // null = anonymous
 }));
 const members = room => [...COLORS.map(c => room.seats[c]?.ws), ...room.watchers].filter(Boolean);
 
@@ -350,7 +674,7 @@ function persist(room) {
 }
 
 function restoreRooms() {
-  const getUser = db.prepare('SELECT id, name, rating, rd, vol FROM users WHERE id = ?');
+  const getUser = db.prepare('SELECT id, name, rating, rd, vol, guest FROM users WHERE id = ?');
   for (const row of db.prepare('SELECT id, data, touched FROM live_rooms').all()) {
     try {
       const d = JSON.parse(row.data);
@@ -433,7 +757,8 @@ wss.on('connection', (ws, req) => {
   const origin = req.headers.origin;
   let sameSite = true;
   try { sameSite = !origin || new URL(origin).host === req.headers.host; } catch { sameSite = false; }
-  ws.user = sameSite ? userFromReq(req) : null; // never trust a cookie sent from another site's page
+  const u = sameSite ? userFromReq(req) : null; // never trust a cookie sent from another site's page
+  ws.user = u && { id: u.id, name: u.name, rating: u.rating, rd: u.rd, vol: u.vol, guest: u.guest }; // just what games need: no hash, no email
   if (ws.user) ws.sid = sha(cookies(req).sid);
   const mine = () => ws.room && COLORS.find(c => ws.room.seats[c]?.ws === ws); // seats swap on rematch, so look it up each time
   let tokens = LIMITS.msgBurst, refilled = Date.now(); // token bucket: a short burst, then msgPerSec
@@ -575,8 +900,10 @@ function sweep() {
       db.prepare('DELETE FROM live_rooms WHERE id = ?').run(id);
     }
   }
-  signupLimit.sweep();
-  loginLimit.sweep();
+  for (const l of LIMITERS) l.sweep();
+  for (const { id } of db.prepare(`SELECT id FROM users WHERE guest = 1 AND created <= ?
+      AND NOT EXISTS (SELECT 1 FROM sessions WHERE user_id = users.id)`).all(now - SESSION_MS)) deleteAccount(id);
+  db.prepare('DELETE FROM tokens WHERE expires <= ?').run(now);
   db.prepare('DELETE FROM sessions WHERE created <= ?').run(now - SESSION_MS);
 }
 setInterval(sweep, 6e4).unref();

@@ -49,7 +49,7 @@
   button.ghost:hover:not(:disabled) { background: var(--raised); border-color: var(--line); }
   button.link { background: none; border: none; padding: 4px; color: var(--muted); text-decoration: underline; text-underline-offset: 3px; }
   button.link:hover:not(:disabled) { background: none; color: var(--text); }
-  select, input[type="text"], input[type="password"], input:not([type]) {
+  select, input[type="text"], input[type="password"], input[type="email"], input:not([type]) {
     font: inherit; color: var(--text); background: rgba(0, 0, 0, 0.35); border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 9px 11px; width: 100%;
   }
   select:disabled { opacity: .45; }
@@ -167,10 +167,46 @@
   .over-mark { width: 64px; height: 64px; margin: 0 auto 10px; border-radius: 50%; display: grid; place-items: center; font: 34px/1 'Apple Symbols', 'Segoe UI Symbol', serif;
                color: var(--gold); background: var(--gold-soft); border: 1px solid rgba(212, 175, 106, .4); }
   #overReason::first-letter { text-transform: uppercase; }
-  #auth form, #profile > div { display: flex; flex-direction: column; gap: 10px; width: min(380px, 80vw); text-align: left; }
-  #auth label { color: var(--muted); }
-  #auth .row, #profile .row { justify-content: flex-end; margin-top: 6px; }
-  #authError { color: var(--danger); margin: 0; min-height: 1.2em; }
+  #profile > div { display: flex; flex-direction: column; gap: 10px; width: min(380px, 80vw); text-align: left; }
+  #profile .row { justify-content: flex-end; margin-top: 6px; }
+  /* sign-in and account dialogs */
+  .auth, .settings { width: min(400px, calc(100vw - 82px)); text-align: left; display: flex; flex-direction: column; gap: 12px; }
+  .settings { width: min(520px, calc(100vw - 82px)); max-height: min(78vh, 760px); overflow-y: auto; }
+  .tabs { display: grid; grid-template-columns: 1fr 1fr; background: rgba(0, 0, 0, .3); border-radius: var(--radius-sm); padding: 4px; gap: 4px; }
+  .tabs button { border: none; background: transparent; color: var(--muted); }
+  .tabs button[aria-selected="true"] { background: var(--raised); color: var(--text); }
+  .auth form, .settings form { display: flex; flex-direction: column; gap: 10px; }
+  .auth label, .settings label { display: grid; gap: 6px; color: var(--muted); font-size: 13px; }
+  .auth h2, .settings h2 { margin: 0; }
+  .settings h3 { font-size: 18px; margin: 0 0 8px; color: var(--gold); }
+  .settings section { padding: 14px 0; border-top: 1px solid var(--line); }
+  .settings section.danger h3 { color: var(--danger); }
+  .pw { position: relative; display: block; }
+  .pw input { padding-right: 64px; }
+  .pw .gen { position: absolute; right: 4px; top: 50%; transform: translateY(-50%); padding: 6px 10px; font-size: 12px; color: var(--gold); background: var(--gold-soft); border-color: transparent; }
+  .pw input.has-gen { padding-right: 96px; }
+  .name-status { margin: -4px 0 0; font-size: 12px; min-height: 1.2em; color: var(--muted); }
+  .name-status.ok { color: var(--ok); } .name-status.bad { color: var(--danger); }
+  .pw .eye { position: absolute; right: 4px; top: 50%; transform: translateY(-50%); padding: 6px 10px; font-size: 12px; background: transparent; border: none; color: var(--muted); }
+  .meter { height: 4px; border-radius: 2px; background: rgba(255, 255, 255, .08); overflow: hidden; }
+  .meter i { display: block; height: 100%; width: 0; background: var(--danger); transition: width .2s, background .2s; }
+  .meter[data-score="2"] i { background: #d9a441; } .meter[data-score="3"] i, .meter[data-score="4"] i { background: var(--ok); }
+  .meter-label { color: var(--muted); font-size: 12px; margin-top: -4px; }
+  .err { color: var(--danger); margin: 0; min-height: 1.2em; font-size: 13px; }
+  .note { color: var(--ok); margin: 0; font-size: 13px; }
+  .hint { color: var(--muted); margin: 0; font-size: 12px; }
+  button.wide { width: 100%; padding: 12px; }
+  .google { display: flex; align-items: center; justify-content: center; gap: 10px; width: 100%; padding: 12px; background: #fff; color: #1f1f1f; border-color: #fff; font-weight: 600; }
+  .google:hover:not(:disabled) { background: #f1f1f1 !important; border-color: #f1f1f1 !important; }
+  .google b { font: 700 18px/1 Arial, sans-serif; color: #4285f4; }
+  .or { display: flex; align-items: center; gap: 10px; color: var(--muted); font-size: 12px; }
+  .or::before, .or::after { content: ""; flex: 1; border-top: 1px solid var(--line); }
+  .badge-ok, .badge-warn { font-size: 12px; padding: 2px 8px; border-radius: 10px; margin-left: 6px; }
+  .badge-ok { background: rgba(127, 194, 138, .15); color: var(--ok); } .badge-warn { background: rgba(217, 164, 65, .15); color: #e0b25a; }
+  #sessionList { list-style: none; margin: 0 0 10px; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+  #sessionList li { display: flex; justify-content: space-between; align-items: center; gap: 10px; background: rgba(0, 0, 0, .25);
+                    border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 8px 8px 8px 12px; font-size: 13px; }
+  #sessionList small { color: var(--muted); display: block; }
   #profileRating { color: var(--gold); }
   #profileGames { list-style: none; margin: 0; padding: 0; max-height: 50vh; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; }
   #profileGames li { display: flex; gap: 10px; align-items: center; justify-content: space-between; background: rgba(0, 0, 0, .25);
@@ -357,27 +393,137 @@
   </form>
 </dialog>
 <dialog id="auth">
-  <form id="authForm">
-    <h2>Sign in</h2>
-    <p style="margin: 0">New here? Pick a name and password, then choose Create account. Your rating and games are saved.</p>
-    <label for="authName">Name</label>
-    <input id="authName" autocomplete="username" required minlength="3" maxlength="20" pattern="[A-Za-z0-9_]+">
-    <label for="authPass">Password</label>
-    <input id="authPass" type="password" autocomplete="current-password" required minlength="8" maxlength="200">
-    <p id="authError" role="alert"></p>
-    <div class="row">
-      <button type="button" id="authCancel" class="ghost">Cancel</button>
-      <button value="signup">Create account</button>
-      <button value="login" class="primary">Sign in</button>
+  <div class="auth">
+    <div id="gateIntro" hidden>
+      <p class="eyebrow" style="margin: 0">Welcome to</p>
+      <h2 style="font-size: 36px; margin: 2px 0 4px">3D Chess</h2>
+      <p class="hint" style="font-size: 13px">Sign in to keep a rating and your game history, or play as a guest.</p>
     </div>
-  </form>
+    <div class="tabs" role="tablist" id="authTabs">
+      <button type="button" role="tab" data-view="signin">Sign in</button>
+      <button type="button" role="tab" data-view="signup">Create account</button>
+    </div>
+    <div id="googleBlock" hidden>
+      <button type="button" class="google" id="googleBtn"><b aria-hidden="true">G</b>Continue with Google</button>
+      <div class="or" style="margin-top: 12px">or</div>
+    </div>
+    <form id="signinForm" data-view="signin" novalidate>
+      <label>Username or email<input id="siLogin" autocomplete="username" required maxlength="254"></label>
+      <label>Password<span class="pw"><input id="siPass" aria-label="Password" type="password" autocomplete="current-password" required maxlength="200"><button type="button" class="eye">Show</button></span></label>
+      <button type="button" class="link" data-goto="forgot" style="align-self: flex-start">Forgot your password?</button>
+      <p class="err" role="alert"></p>
+      <button class="primary wide">Sign in</button>
+    </form>
+    <form id="signupForm" data-view="signup" novalidate>
+      <label>Username<span class="pw"><input id="suName" class="has-gen" aria-label="Username" autocomplete="username" required minlength="3" maxlength="20" pattern="[A-Za-z0-9_]+"><button type="button" class="gen" data-for="suName">Generate</button></span></label>
+      <p class="name-status" data-for="suName">3–20 letters, digits or _. Other players see you by this name.</p>
+      <label>Email<input id="suEmail" type="email" autocomplete="email" required maxlength="254"></label>
+      <label>Password<span class="pw"><input id="suPass" aria-label="Password" type="password" autocomplete="new-password" required minlength="8" maxlength="200"><button type="button" class="eye">Show</button></span></label>
+      <div class="meter" data-for="suPass"><i></i></div><p class="meter-label" data-for="suPass"></p>
+      <label>Confirm password<input id="suPass2" type="password" autocomplete="new-password" required maxlength="200"></label>
+      <p class="hint">We'll email you a link to confirm your address.</p>
+      <p class="err" role="alert"></p>
+      <button class="primary wide">Create account</button>
+    </form>
+    <form id="forgotForm" data-view="forgot" novalidate>
+      <h2>Reset your password</h2>
+      <p class="hint" style="font-size: 13px">Enter your account's email and we'll send you a link to choose a new password.</p>
+      <label>Email<input id="fgEmail" type="email" autocomplete="email" required maxlength="254"></label>
+      <p class="err" role="alert"></p>
+      <p class="note" role="status"></p>
+      <button class="primary wide">Send reset link</button>
+      <button type="button" class="link" data-goto="signin">Back to sign in</button>
+    </form>
+    <form id="resetForm" data-view="reset" novalidate>
+      <h2>Choose a new password</h2>
+      <label>New password<span class="pw"><input id="rsPass" aria-label="New password" type="password" autocomplete="new-password" required minlength="8" maxlength="200"><button type="button" class="eye">Show</button></span></label>
+      <div class="meter" data-for="rsPass"><i></i></div><p class="meter-label" data-for="rsPass"></p>
+      <label>Confirm new password<input id="rsPass2" type="password" autocomplete="new-password" required maxlength="200"></label>
+      <p class="hint">You'll be signed out on every other device.</p>
+      <p class="err" role="alert"></p>
+      <button class="primary wide">Save new password</button>
+    </form>
+    <div id="guestBlock" hidden>
+      <div class="or">or</div>
+      <button type="button" id="guestBtn" class="wide" style="margin-top: 12px">Continue as guest</button>
+      <p class="hint" style="text-align: center; margin-top: 6px">Guests can play anyone, but games aren't rated or saved to a profile.</p>
+    </div>
+    <button type="button" id="authCancel" class="link" style="align-self: center">Close</button>
+  </div>
+</dialog>
+<dialog id="settings">
+  <div class="settings">
+    <h2>Account settings</h2>
+    <section id="upgradeSection" hidden>
+      <h3>Save your guest account</h3>
+      <p class="hint" style="font-size: 13px; margin-bottom: 10px">Pick a username, email and password to keep this account, your games and get a rating. Unsaved guest accounts are removed when you sign out.</p>
+      <div id="upgradeGoogle" hidden>
+        <button type="button" class="google" id="upgradeGoogleBtn"><b aria-hidden="true">G</b>Save with Google</button>
+        <div class="or" style="margin: 12px 0">or</div>
+      </div>
+      <form id="upgradeForm" novalidate>
+        <label>Username<span class="pw"><input id="upName" class="has-gen" aria-label="Username" autocomplete="username" required minlength="3" maxlength="20" pattern="[A-Za-z0-9_]+"><button type="button" class="gen" data-for="upName">Generate</button></span></label>
+        <p class="name-status" data-for="upName">3–20 letters, digits or _.</p>
+        <label>Email<input id="upEmail" type="email" autocomplete="email" required maxlength="254"></label>
+        <label>Password<span class="pw"><input id="upPass" aria-label="Password" type="password" autocomplete="new-password" required minlength="8" maxlength="200"><button type="button" class="eye">Show</button></span></label>
+        <div class="meter" data-for="upPass"><i></i></div><p class="meter-label" data-for="upPass"></p>
+        <label>Confirm password<input id="upPass2" type="password" autocomplete="new-password" required maxlength="200"></label>
+        <p class="err" role="alert"></p>
+        <button class="primary">Save account</button>
+      </form>
+    </section>
+    <section class="full-only">
+      <h3>Email</h3>
+      <p id="setEmailStatus" style="margin: 0 0 10px"></p>
+      <button type="button" id="resendBtn" hidden>Resend confirmation email</button>
+      <form id="emailForm" novalidate style="margin-top: 10px">
+        <label>New email<input id="setEmail" type="email" autocomplete="email" required maxlength="254"></label>
+        <label class="needs-password">Current password<input id="setEmailPass" type="password" autocomplete="current-password" maxlength="200"></label>
+        <p class="err" role="alert"></p><p class="note" role="status"></p>
+        <button>Change email</button>
+      </form>
+    </section>
+    <section class="full-only">
+      <h3 id="pwTitle">Password</h3>
+      <form id="pwForm" novalidate>
+        <label class="needs-password">Current password<input id="setCurPass" type="password" autocomplete="current-password" maxlength="200"></label>
+        <label>New password<span class="pw"><input id="setNewPass" aria-label="New password" type="password" autocomplete="new-password" required minlength="8" maxlength="200"><button type="button" class="eye">Show</button></span></label>
+        <div class="meter" data-for="setNewPass"><i></i></div><p class="meter-label" data-for="setNewPass"></p>
+        <label>Confirm new password<input id="setNewPass2" type="password" autocomplete="new-password" required maxlength="200"></label>
+        <p class="hint">Other devices are signed out when the password changes.</p>
+        <p class="err" role="alert"></p><p class="note" role="status"></p>
+        <button id="pwBtn">Change password</button>
+      </form>
+    </section>
+    <section id="googleSection">
+      <h3>Google</h3>
+      <p id="googleStatus" style="margin: 0 0 10px"></p>
+      <div class="row"><button type="button" id="googleLink">Connect Google</button><button type="button" id="googleUnlink">Disconnect Google</button></div>
+      <p class="err" role="alert" id="googleErr"></p>
+    </section>
+    <section>
+      <h3>Where you're signed in</h3>
+      <ul id="sessionList"></ul>
+      <button type="button" id="revokeOthers">Sign out everywhere else</button>
+    </section>
+    <section class="danger">
+      <h3>Delete account</h3>
+      <p class="hint" style="font-size: 13px; margin-bottom: 10px">This removes your account, rating and sign-in details. Your past games stay in your opponents' histories without your name. It can't be undone.</p>
+      <form id="deleteForm" novalidate>
+        <label id="deleteLabel">Current password<input id="deleteConfirm" type="password" autocomplete="current-password" required maxlength="200"></label>
+        <p class="err" role="alert"></p>
+        <button class="danger">Delete my account</button>
+      </form>
+    </section>
+    <div class="row" style="justify-content: flex-end"><button type="button" id="settingsClose" class="primary">Done</button></div>
+  </div>
 </dialog>
 <dialog id="profile">
   <div>
     <h2 id="profileName"></h2>
     <p id="profileRating" style="margin: 0"></p>
     <ul id="profileGames"></ul>
-    <div class="row"><button id="signOut" class="ghost">Sign out</button><button id="profileClose" class="primary">Close</button></div>
+    <div class="row"><button id="signOut" class="ghost">Sign out</button><button id="openSettings">Account settings</button><button id="profileClose" class="primary">Close</button></div>
   </div>
 </dialog>
 <dialog id="over">
@@ -726,7 +872,7 @@ function localResult() {
 }
 const currentResult = () => online ? online.result : localResult();
 // "alice (1512)" for a signed-in player, otherwise the colour
-const rated = p => `${p.name} (${p.rating}${p.provisional ? '?' : ''})`; // "?" = provisional, not enough games yet
+const rated = p => p.guest ? p.name : `${p.name} (${p.rating}${p.provisional ? '?' : ''})`; // "?" = provisional; guests have no rating
 const who = side => { const p = online?.players?.[side]; return p ? rated(p) : NAME[side]; };
 const resultTitle = r => r.reason === 'aborted' ? 'Game aborted' : !r.winner ? 'Draw' : !online?.color ? `${NAME[r.winner]} wins` : r.winner === online.color ? 'You win!' : 'You lose';
 const resultReason = r => r.reason === 'aborted' ? 'No first move within 30 seconds, so it does not count' : r.winner
@@ -1061,34 +1207,270 @@ setInterval(() => {
 }, 100);
 document.getElementById('copy').onclick = () => navigator.clipboard?.writeText(shareUrl.value).then(
   () => { document.getElementById('copy').textContent = 'Copied!'; toast('Link copied. Send it to your friend.'); }, () => shareUrl.select());
+// coming back from Google sign-in lands on "/": return to the game link the player started from
+try {
+  const back = sessionStorage.getItem('returnTo');
+  sessionStorage.removeItem('returnTo');
+  if (location.pathname === '/' && /^\/g\/[a-z0-9]+$/.test(back ?? '')) history.replaceState(null, '', back + location.search);
+} catch {}
 const linkRoom = location.pathname.match(/^\/g\/([a-z0-9]+)$/)?.[1];
-if (linkRoom) connect(() => ({ t: 'join', room: linkRoom, token: seatStore.get('seat:' + linkRoom) }));
-else showLobby();
+// into the game: join the linked room, or show the menu. Runs once the player has signed in or chosen to be a guest.
+let entered = false;
+function enterSite() {
+  if (entered) return;
+  entered = true;
+  if (linkRoom) connect(() => ({ t: 'join', room: linkRoom, token: seatStore.get('seat:' + linkRoom) }));
+  else showLobby();
+}
 
-// --- accounts: sign in / create account, profile with game history ---
-let me = null;
+// --- accounts: sign in, create account, password reset, account settings ---
+let me = null, resetToken = null;
 const api = (path, body) => fetch(path, body ? { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) } : {})
-  .then(async r => ({ ok: r.ok, ...(await r.json().catch(() => ({ error: 'The server did not answer.' }))) }));
-api('/api/me').then(r => {
-  if (!r.ok) return; // no game server (static hosting): no accounts
+  .then(async r => ({ ok: r.ok, status: r.status, ...(await r.json().catch(() => ({ error: 'The server did not answer.' }))) }));
+const $ = (sel, root = document) => root.querySelector(sel);
+const formMsg = (form, err = '', note = '') => { $('.err', form).textContent = err; const n = $('.note', form); if (n) n.textContent = note; };
+const busyForm = async (form, fn) => { // disables the submit button while a request runs
+  const b = $('button:not([type="button"])', form);
+  b.disabled = true;
+  try { return await fn(); } finally { b.disabled = false; }
+};
+
+// password strength: a rough guide, not a rule (the only rule is 8+ characters)
+function strength(pw, name = '') {
+  if (!pw) return [0, ''];
+  let score = (pw.length >= 8) + (pw.length >= 12) + (/[a-z]/.test(pw) && /[A-Z]/.test(pw)) + /\d/.test(pw) + /[^A-Za-z0-9]/.test(pw) + (pw.length >= 16);
+  if (pw.length < 8 || (name && pw.toLowerCase().includes(name.toLowerCase())) || /^(.)\1+$/.test(pw)) score = 0;
+  const s = Math.min(4, Math.max(0, score - 1));
+  return [s, ['Too weak: use at least 8 characters', 'Weak', 'Fair', 'Good', 'Strong'][s]];
+}
+for (const meter of document.querySelectorAll('.meter')) {
+  const input = btn(meter.dataset.for), label = $(`.meter-label[data-for="${meter.dataset.for}"]`);
+  input.addEventListener('input', () => {
+    const [sc, text] = strength(input.value, btn('suName')?.value || me?.name || '');
+    meter.dataset.score = sc;
+    $('i', meter).style.width = input.value ? `${(sc + 1) * 20}%` : '0';
+    label.textContent = input.value ? text : '';
+  });
+}
+// usernames: a Generate button for a free chess-themed name, and a live "available / taken" check while typing
+for (const gen of document.querySelectorAll('.gen')) {
+  const input = btn(gen.dataset.for), status = $(`.name-status[data-for="${gen.dataset.for}"]`), hint = status.textContent;
+  let timer = null, seq = 0;
+  const check = async () => {
+    const name = input.value.trim(), mine = ++seq;
+    if (!name) { status.textContent = hint; status.className = 'name-status'; return; }
+    const r = await api('/api/usernames/check?name=' + encodeURIComponent(name));
+    if (mine !== seq || !r.ok) return; // a newer check is on its way, or the server is busy
+    status.textContent = r.available ? `✓ ${name} is available` : `✗ ${r.error}`;
+    status.className = `name-status ${r.available ? 'ok' : 'bad'}`;
+  };
+  input.addEventListener('input', () => { clearTimeout(timer); timer = setTimeout(check, 300); });
+  gen.onclick = async () => {
+    const r = await api('/api/usernames/suggest');
+    if (!r.ok) return;
+    input.value = r.name;
+    input.dispatchEvent(new Event('input')); // the strength meter and others react as if typed
+    clearTimeout(timer);
+    check();
+  };
+}
+for (const eye of document.querySelectorAll('.eye')) eye.onclick = () => {
+  const input = eye.previousElementSibling, show = input.type === 'password';
+  input.type = show ? 'text' : 'password';
+  eye.textContent = show ? 'Hide' : 'Show';
+  eye.setAttribute('aria-label', show ? 'Hide password' : 'Show password');
+};
+
+// gate: the first screen, before the menu or a game link: sign in, create an account, or continue as a guest
+let gate = false;
+function showAuth(view = 'signin') {
+  for (const f of document.querySelectorAll('#auth form')) { f.hidden = f.dataset.view !== view; formMsg(f); }
+  for (const t of document.querySelectorAll('#authTabs button')) t.setAttribute('aria-selected', t.dataset.view === view);
+  const entry = view === 'signin' || view === 'signup';
+  btn('authTabs').hidden = !entry;
+  btn('googleBlock').hidden = !entry || !googleOn;
+  btn('gateIntro').hidden = !gate || !entry;
+  btn('guestBlock').hidden = !gate || !entry;
+  btn('authCancel').hidden = gate && entry; // at the gate the way out is signing in or choosing guest
+  if (!btn('auth').open) btn('auth').showModal();
+  $(`#auth form[data-view="${view}"] input`)?.focus();
+}
+for (const t of document.querySelectorAll('#authTabs button, #auth [data-goto]')) t.onclick = () => showAuth(t.dataset.view || t.dataset.goto);
+btn('authCancel').onclick = () => gate ? showAuth('signin') : btn('auth').close(); // from "forgot" back to the gate's sign-in
+btn('auth').addEventListener('cancel', e => { if (gate) e.preventDefault(); }); // Esc doesn't skip the gate
+btn('guestBtn').onclick = async () => {
+  btn('guestBtn').disabled = true;
+  const r = await api('/api/guest', {}); // a temporary guest account: signed in, with a Guest_ name opponents see
+  btn('guestBtn').disabled = false;
+  if (!r.ok) return toast(r.error, 'error');
+  try { sessionStorage.setItem('notice', `You're playing as ${r.user.name}. Save your account from your profile to keep your games and get a rating.`); } catch {}
+  location.reload();
+};
+let googleOn = false;
+btn('googleBtn').onclick = () => {
+  try { if (linkRoom) sessionStorage.setItem('returnTo', location.pathname); } catch {}
+  location.href = '/auth/google';
+};
+
+btn('signinForm').onsubmit = e => { e.preventDefault(); const f = e.target; busyForm(f, async () => {
+  if (!btn('siLogin').value.trim() || !btn('siPass').value) return formMsg(f, 'Enter your username or email and your password.');
+  const r = await api('/api/login', { login: btn('siLogin').value.trim(), password: btn('siPass').value });
+  if (!r.ok) return formMsg(f, r.error);
+  location.reload(); // reconnect so the game server knows who we are
+}); };
+btn('signupForm').onsubmit = e => { e.preventDefault(); const f = e.target; busyForm(f, async () => {
+  const name = btn('suName').value.trim(), email = btn('suEmail').value.trim(), pw = btn('suPass').value;
+  if (!/^[A-Za-z0-9_]{3,20}$/.test(name)) return formMsg(f, 'Usernames are 3–20 letters, digits or _.');
+  if (!btn('suEmail').checkValidity() || !email) return formMsg(f, 'Enter a valid email address.');
+  if (pw.length < 8) return formMsg(f, 'Passwords need at least 8 characters.');
+  if (pw !== btn('suPass2').value) return formMsg(f, "The two passwords don't match.");
+  const r = await api('/api/signup', { name, email, password: pw });
+  if (!r.ok) return formMsg(f, r.error);
+  try { sessionStorage.setItem('welcome', email); } catch {}
+  location.reload();
+}); };
+btn('forgotForm').onsubmit = e => { e.preventDefault(); const f = e.target; busyForm(f, async () => {
+  const r = await api('/api/forgot', { email: btn('fgEmail').value.trim() });
+  r.ok ? formMsg(f, '', r.message) : formMsg(f, r.error);
+}); };
+btn('resetForm').onsubmit = e => { e.preventDefault(); const f = e.target; busyForm(f, async () => {
+  const pw = btn('rsPass').value;
+  if (pw.length < 8) return formMsg(f, 'Passwords need at least 8 characters.');
+  if (pw !== btn('rsPass2').value) return formMsg(f, "The two passwords don't match.");
+  const r = await api('/api/reset', { token: resetToken, password: pw });
+  if (!r.ok) return formMsg(f, r.error);
+  try { sessionStorage.setItem('notice', 'Your password was changed. You are signed in.'); } catch {}
+  location.href = '/';
+}); };
+
+// links that arrive by email or back from Google carry a one-time value in the URL: act on it, then clean the URL
+const params = new URLSearchParams(location.search);
+if (params.size) history.replaceState(null, '', location.pathname);
+const AUTH_NOTES = { google: 'Signed in with Google.', 'google-linked': 'Google is now connected to your account.', failed: "Google sign-in didn't work. Try again.",
+  'google-in-use': 'That Google account is already connected to another player.', 'google-saved': 'Your account is saved and connected to Google.', 'google-off': 'Google sign-in is not set up on this server.', 'too-many': 'Too many new accounts from your network. Try again later.' };
+if (params.get('auth')) toast(AUTH_NOTES[params.get('auth')] ?? 'Done.', ['failed', 'google-in-use', 'google-off', 'too-many'].includes(params.get('auth')) ? 'error' : 'info');
+if (params.get('verify')) api('/api/verify', { token: params.get('verify') }).then(r => toast(r.ok ? 'Email confirmed. Thanks!' : r.error, r.ok ? 'info' : 'error', 7000));
+if (params.get('reset')) {
+  resetToken = params.get('reset');
+  showAuth('reset');
+  btn('auth').addEventListener('close', () => { if (!me) { gate = true; showAuth('signin'); } else enterSite(); }, { once: true });
+}
+try { const n = sessionStorage.getItem('notice'); if (n) { sessionStorage.removeItem('notice'); toast(n); } } catch {}
+
+Promise.all([api('/api/config').catch(() => ({})), api('/api/me')]).then(([config, r]) => {
+  googleOn = !!config.google;
+  if (!r.ok) return enterSite(); // no game server (static hosting): no accounts, local play only
   me = r.user;
+  if (me) enterSite();
+  else if (!resetToken) { gate = true; showAuth('signin'); }
   btn('account').hidden = false;
   btn('account').textContent = me ? rated(me) : 'Sign in';
-}, () => {});
-btn('account').onclick = () => me ? openProfile(me.name) : (btn('authError').textContent = '', btn('auth').showModal());
-btn('authCancel').onclick = () => btn('auth').close();
-btn('authForm').onsubmit = async e => {
-  e.preventDefault();
-  const r = await api(e.submitter?.value === 'signup' ? '/api/signup' : '/api/login', { name: btn('authName').value, password: btn('authPass').value });
-  if (!r.ok) return btn('authError').textContent = r.error;
-  location.reload(); // reconnect so the game server knows who we are
-};
+  let welcome = null;
+  try { welcome = sessionStorage.getItem('welcome'); sessionStorage.removeItem('welcome'); } catch {}
+  if (me && welcome) toast(`Welcome, ${me.name}! We sent a confirmation link to ${welcome}.`, 'info', 8000);
+  else if (me?.guest) {} // guests got their notice when the account was made
+  else if (me && !me.hasEmail) toast('Add an email in Account settings, so you can reset your password if you forget it.', 'info', 8000);
+  else if (me && !me.emailVerified && !params.get('verify')) toast('Please confirm your email: check your inbox for the link (or resend it in Account settings).', 'info', 8000);
+}, () => enterSite());
+btn('account').onclick = () => me ? openProfile(me.name) : showAuth('signin');
+
+// --- account settings ---
+async function openSettings() {
+  const a = await api('/api/account');
+  if (!a.ok) return toast(a.error, 'error');
+  btn('profile').close();
+  for (const f of document.querySelectorAll('#settings form')) { f.reset(); formMsg(f); }
+  btn('googleErr').textContent = '';
+  const status = btn('setEmailStatus');
+  status.replaceChildren(a.email ? a.email : 'No email yet: add one so you can reset your password.');
+  if (a.email) status.append(Object.assign(document.createElement('span'), { className: a.emailVerified ? 'badge-ok' : 'badge-warn', textContent: a.emailVerified ? 'Confirmed' : 'Not confirmed' }));
+  btn('resendBtn').hidden = !a.email || a.emailVerified;
+  for (const l of document.querySelectorAll('#settings .needs-password')) l.hidden = !a.hasPassword;
+  btn('upgradeSection').hidden = !a.guest; // guests save their account instead of editing email/password/Google
+  for (const sec of document.querySelectorAll('#settings .full-only')) sec.hidden = a.guest;
+  btn('upgradeGoogle').hidden = !a.googleAvailable;
+  for (const st of document.querySelectorAll('#settings .name-status')) { st.className = 'name-status'; st.textContent = '3–20 letters, digits or _.'; }
+  btn('pwTitle').textContent = a.hasPassword ? 'Password' : 'Set a password';
+  btn('pwBtn').textContent = a.hasPassword ? 'Change password' : 'Set password';
+  btn('googleSection').hidden = a.guest || (!a.googleAvailable && !a.google);
+  btn('googleStatus').textContent = a.google ? 'Connected: you can sign in with Google.' : 'Not connected.';
+  btn('googleLink').hidden = a.google || !a.googleAvailable;
+  btn('googleUnlink').hidden = !a.google;
+  btn('deleteLabel').firstChild.textContent = a.hasPassword ? 'Current password' : `Type your username (${a.name}) to confirm`;
+  btn('deleteConfirm').type = a.hasPassword ? 'password' : 'text';
+  btn('sessionList').replaceChildren(...a.sessions.map(sn => {
+    const li = document.createElement('li'), info = document.createElement('span'), small = document.createElement('small');
+    info.textContent = describeAgent(sn.ua) + (sn.current ? ' · this device' : '');
+    small.textContent = `Signed in ${new Date(sn.created).toLocaleDateString()} · last active ${new Date(sn.lastSeen ?? sn.created).toLocaleString()}`;
+    info.append(small);
+    li.append(info);
+    if (!sn.current) {
+      const out = Object.assign(document.createElement('button'), { textContent: 'Sign out' });
+      out.onclick = async () => { await api('/api/account/sessions/revoke', { id: sn.id }); openSettings(); };
+      li.append(out);
+    }
+    return li;
+  }));
+  btn('revokeOthers').hidden = a.sessions.length < 2;
+  settingsAccount = a;
+  if (!btn('settings').open) btn('settings').showModal();
+}
+let settingsAccount = null;
+// "Chrome on macOS" from a user-agent string: good enough to recognise your own devices
+function describeAgent(ua = '') {
+  const browser = /Edg\//.test(ua) ? 'Edge' : /OPR\//.test(ua) ? 'Opera' : /Firefox\//.test(ua) ? 'Firefox' : /Chrome\//.test(ua) ? 'Chrome' : /Safari\//.test(ua) ? 'Safari' : 'A browser';
+  const os = /iPhone|iPad/.test(ua) ? 'iOS' : /Android/.test(ua) ? 'Android' : /Mac OS X/.test(ua) ? 'macOS' : /Windows/.test(ua) ? 'Windows' : /Linux/.test(ua) ? 'Linux' : 'unknown system';
+  return `${browser} on ${os}`;
+}
+btn('openSettings').onclick = openSettings;
+btn('settingsClose').onclick = () => btn('settings').close();
+btn('resendBtn').onclick = async () => { const r = await api('/api/account/resend', {}); toast(r.ok ? 'Confirmation email sent.' : r.error, r.ok ? 'info' : 'error'); };
+btn('emailForm').onsubmit = e => { e.preventDefault(); const f = e.target; busyForm(f, async () => {
+  if (!btn('setEmail').checkValidity() || !btn('setEmail').value.trim()) return formMsg(f, 'Enter a valid email address.');
+  const r = await api('/api/account/email', { email: btn('setEmail').value.trim(), current: btn('setEmailPass').value });
+  if (!r.ok) return formMsg(f, r.error);
+  await openSettings();
+  formMsg(f, '', 'Saved. Check your inbox to confirm the new address.');
+}); };
+btn('pwForm').onsubmit = e => { e.preventDefault(); const f = e.target; busyForm(f, async () => {
+  const pw = btn('setNewPass').value;
+  if (pw.length < 8) return formMsg(f, 'Passwords need at least 8 characters.');
+  if (pw !== btn('setNewPass2').value) return formMsg(f, "The two passwords don't match.");
+  const r = await api('/api/account/password', { current: btn('setCurPass').value, password: pw });
+  if (!r.ok) return formMsg(f, r.error);
+  await openSettings();
+  formMsg(f, '', 'Password saved. Other devices were signed out.');
+}); };
+btn('googleLink').onclick = btn('upgradeGoogleBtn').onclick = () => location.href = '/auth/google?link=1';
+btn('upgradeForm').onsubmit = e => { e.preventDefault(); const f = e.target; busyForm(f, async () => {
+  const name = btn('upName').value.trim(), email = btn('upEmail').value.trim(), pw = btn('upPass').value;
+  if (!/^[A-Za-z0-9_]{3,20}$/.test(name)) return formMsg(f, 'Usernames are 3–20 letters, digits or _.');
+  if (!btn('upEmail').checkValidity() || !email) return formMsg(f, 'Enter a valid email address.');
+  if (pw.length < 8) return formMsg(f, 'Passwords need at least 8 characters.');
+  if (pw !== btn('upPass2').value) return formMsg(f, "The two passwords don't match.");
+  const r = await api('/api/account/upgrade', { name, email, password: pw });
+  if (!r.ok) return formMsg(f, r.error);
+  try { sessionStorage.setItem('notice', `Saved! You're ${r.user.name} now. We sent a confirmation link to ${email}.`); } catch {}
+  location.reload();
+}); };
+btn('googleUnlink').onclick = async () => { const r = await api('/api/account/google/unlink', {}); r.ok ? openSettings() : (btn('googleErr').textContent = r.error); };
+btn('revokeOthers').onclick = async () => { await api('/api/account/sessions/revoke-others', {}); openSettings(); };
+btn('deleteForm').onsubmit = e => { e.preventDefault(); const f = e.target; busyForm(f, async () => {
+  if (!await askConfirm('Delete your account?', 'Your account, rating and sign-in details are removed for good.', 'Delete account', true)) return;
+  const v = btn('deleteConfirm').value;
+  const r = await api('/api/account/delete', settingsAccount?.hasPassword ? { current: v } : { confirm: v });
+  if (!r.ok) return formMsg(f, r.error);
+  try { for (const k of Object.keys(sessionStorage)) if (k.startsWith('seat:')) sessionStorage.removeItem(k); sessionStorage.setItem('notice', 'Your account was deleted.'); } catch {}
+  location.href = '/';
+}); };
 async function openProfile(name) {
   const p = await api('/api/users/' + encodeURIComponent(name));
   if (!p.ok) return;
   btn('profileName').textContent = p.name;
   btn('profileRating').textContent = `Rating ${p.rating}${p.provisional ? '? (provisional until a few more rated games)' : ''}`;
-  btn('signOut').hidden = name !== me?.name;
+  btn('signOut').hidden = btn('openSettings').hidden = name !== me?.name;
+  btn('openSettings').textContent = me?.guest ? 'Save your account' : 'Account settings';
+  btn('openSettings').className = me?.guest ? 'primary' : '';
   btn('profileGames').replaceChildren(...(p.games.length ? p.games.map(g => {
     const mine = g.white === p.name ? 'w' : 'b', opp = (mine === 'w' ? g.black : g.white) ?? 'Guest';
     const outcome = !g.winner ? 'Draw' : g.winner === mine ? 'Win' : 'Loss';
@@ -1123,10 +1505,11 @@ btn('chatBtn').onclick = () => {
 };
 addEventListener('keydown', e => { if (e.key === 'Escape' && document.body.classList.contains('drawer-open')) btn('panelToggle').click(); });
 btn('signOut').onclick = async () => {
+  if (me?.guest && !await askConfirm('Sign out of this guest account?', "Guest accounts can't be signed back into, so it and its games will be removed. Save it first to keep them.", 'Sign out', true)) return;
   await api('/api/logout', {});
   // forget this tab's seat tokens too, so nobody using it next can step back into your games
   try { for (const k of Object.keys(sessionStorage)) if (k.startsWith('seat:')) sessionStorage.removeItem(k); } catch {}
-  location.reload();
+  location.reload(); // back to the welcome screen
 };
 
 // pull the camera back on tall, narrow screens so the whole board fits

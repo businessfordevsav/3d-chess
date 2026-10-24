@@ -5,7 +5,7 @@
   "scripts": {
     "start": "node --no-warnings server.js",
     "dev": "node --watch --no-warnings server.js",
-    "test": "node --no-warnings test-rooms.mjs && node --no-warnings test-security.mjs",
+    "test": "node --no-warnings test-rooms.mjs && node --no-warnings test-security.mjs && node --no-warnings test-accounts.mjs",
     "vendor": "node vendor.mjs"
   },
   "engines": {
@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "chess.js": "1.4.0",
+    "nodemailer": "10.2.1",
     "ws": "^8.18.0"
   },
   "devDependencies": {

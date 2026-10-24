@@ -169,20 +169,20 @@ try {
   // accounts: sign up, bad input, duplicates, wrong password, JSON-only posts
   const post = (path, body, type = 'application/json') => fetch(BASE + path, { method: 'POST', headers: { 'content-type': type }, body: JSON.stringify(body) });
   const signup = async name => {
-    const r = await post('/api/signup', { name, password: 'correct horse' });
+    const r = await post('/api/signup', { name, email: `${name}@example.test`, password: 'correct horse' });
     assert.equal(r.status, 201);
     return r.headers.get('set-cookie').split(';')[0];
   };
   const alice = await signup('alice'), bob = await signup('bob');
-  assert.equal((await post('/api/signup', { name: 'ALICE', password: 'correct horse' })).status, 409);
-  assert.equal((await post('/api/signup', { name: 'x', password: 'correct horse' })).status, 400);
-  assert.equal((await post('/api/signup', { name: 'carol', password: 'short' })).status, 400);
+  assert.equal((await post('/api/signup', { name: 'ALICE', email: 'alice2@example.test', password: 'correct horse' })).status, 409);
+  assert.equal((await post('/api/signup', { name: 'x', email: 'x@example.test', password: 'correct horse' })).status, 400);
+  assert.equal((await post('/api/signup', { name: 'carol', email: 'carol@example.test', password: 'short' })).status, 400);
   assert.equal((await post('/api/login', { name: 'alice', password: 'wrong password' })).status, 401);
   assert.equal((await post('/api/login', { name: 'alice', password: 'correct horse' }, 'text/plain')).status, 415);
   const login = await post('/api/login', { name: 'alice', password: 'correct horse' });
   assert.equal((await login.json()).user.name, 'alice');
   const me = await (await fetch(BASE + '/api/me', { headers: { cookie: alice } })).json();
-  assert.deepEqual(me.user, { id: 1, name: 'alice', rating: 1500, provisional: true });
+  assert.deepEqual(me.user, { id: 1, name: 'alice', rating: 1500, provisional: true, guest: false, hasEmail: true, emailVerified: false });
 
   // a rated game between two accounts: names in state, Elo after the result, saved to both profiles
   const ua = client(alice), ub = client(bob);
@@ -230,7 +230,7 @@ try {
 
   // over HTTPS (here: a proxy saying so) the session cookie is marked Secure
   const viaHttps = await fetch(BASE + '/api/signup', { method: 'POST', headers: { 'content-type': 'application/json', 'x-forwarded-proto': 'https' },
-    body: JSON.stringify({ name: 'dave', password: 'correct horse' }) });
+    body: JSON.stringify({ name: 'dave', email: 'dave@example.test', password: 'correct horse' }) });
   assert.match(viaHttps.headers.get('set-cookie'), /; Secure/);
   assert.doesNotMatch(alice, /Secure/);
 
