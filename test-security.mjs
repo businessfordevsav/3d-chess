@@ -354,20 +354,73 @@ try {
     assert.ok(Math.abs(p.rating - (1500 + sum)) <= 1, `rating ${p.rating}, but its changes add up to ${1500 + sum}`);
     closeAll(a, b);
   });
-  await check('F-05: a seat keeps its account when rejoined with just the token (no rated-loss dodging)', async () => {
+  await check('F-05/R-3: an account seat keeps its account; the token alone only lets you watch', async () => {
     const fred = await signup('fred'), gina = await signup('gina');
     const g = await pair('none', fred, gina);
     await play(g, 'w', 'e2', 'e4'); await play(g, 'b', 'e7', 'e5');
     const fredColor = g.w.last('state').players.w.name === 'fred' ? 'w' : 'b';
-    const ghost = client(); // no cookie
+    // the seat token without fred's login (a tab left after signing out, or a copied token): spectator only
+    const ghost = client();
     ghost.send({ t: 'join', room: g.room, token: g.tokens[fredColor] });
-    await ghost.next('joined');
-    assert.equal((await ghost.next('state')).players[fredColor].name, 'fred');
+    assert.equal((await ghost.next('joined')).token, null);
+    const gs = await ghost.next('state');
+    assert.equal(gs.you, null);
+    assert.equal(gs.players[fredColor].name, 'fred');
     ghost.send({ t: 'resign' }); await sleep(250);
+    assert.equal(g.b.last('state').result, null, 'the token alone could resign for fred');
+    // another account holding the token can't take it either
+    const ivan = await signup('ivan_x'), other = client({ cookie: ivan });
+    other.send({ t: 'join', room: g.room, token: g.tokens[fredColor] });
+    assert.equal((await other.next('joined')).token, null);
+    // fred himself, signed in, gets the seat back without any token; his resignation counts
+    const back = client({ cookie: fred });
+    back.send({ t: 'join', room: g.room });
+    await back.next('joined');
+    assert.equal((await back.next('state')).you, fredColor);
+    back.send({ t: 'resign' }); await sleep(250);
     const p = await profile('fred');
     assert.equal(p.games.length, 1);
     assert.ok(p.rating < 1500);
-    closeAll(g); ghost.close();
+    closeAll(g); ghost.close(); other.close(); back.close();
+  });
+  await check('R-1: two accounts on the same network play unrated (anti-farming)', async () => {
+    const ip = freshIp(), x = await signup('same_net_a'), y = await signup('same_net_b');
+    const a = client({ cookie: x, ip });
+    a.send({ t: 'create', tc: 'none' });
+    const ja = await a.next('joined');
+    await a.next('state');
+    const b = client({ cookie: y, ip });
+    b.send({ t: 'join', room: ja.room });
+    await b.next('joined');
+    const sb = await b.next('state');
+    await a.next('state');
+    const g = sb.you === 'w' ? { w: b, b: a } : { w: a, b };
+    await play(g, 'w', 'e2', 'e4'); await play(g, 'b', 'e7', 'e5');
+    g.w.send({ t: 'resign' });
+    const [s] = await Promise.all([g.w.next('state'), g.b.next('state')]);
+    assert.equal(s.result.changes, undefined);
+    assert.match(s.result.unrated, /same network/);
+    for (const n of ['same_net_a', 'same_net_b']) {
+      const p = await profile(n);
+      assert.deepEqual([p.rating, p.games.length, p.games[0].rated], [1500, 1, 0], n);
+    }
+    closeAll(g);
+  });
+  await check('R-1: after 3 rated games between the same two accounts in a day, more are unrated', async () => {
+    const x = await signup('repeat_a'), y = await signup('repeat_b');
+    const outcomes = [];
+    for (let i = 0; i < 4; i++) {
+      const g = await pair('none', x, y);
+      await play(g, 'w', 'e2', 'e4'); await play(g, 'b', 'e7', 'e5');
+      g.b.send({ t: 'resign' });
+      const [s] = await Promise.all([g.w.next('state'), g.b.next('state')]);
+      outcomes.push(s.result.unrated ?? 'rated');
+      closeAll(g);
+    }
+    assert.deepEqual(outcomes.slice(0, 3), ['rated', 'rated', 'rated']);
+    assert.match(outcomes[3], /3 rated games/);
+    const p = await profile('repeat_a');
+    assert.deepEqual(p.games.map(gm => gm.rated), [0, 1, 1, 1]); // newest first
   });
   await check('F-06: one network cannot fill the server with empty rooms', async () => {
     const ip = freshIp();

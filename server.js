@@ -192,7 +192,7 @@ const validTc = tc => typeof tc === 'string' && Object.hasOwn(TIME_CONTROLS, tc)
 // like lichess: each side must make its first move within 30 s (White from when both are seated, Black
 // from White's first move) or the game is aborted: no result, no rating, not saved. FIRST_MOVE_MS is for tests.
 const FIRST_MOVE_MS = Number(process.env.FIRST_MOVE_MS) || 30_000;
-const LIMITS = { roomsPerIp: 10, connectionsPerIp: 30, maxRooms: 10000, msgBurst: 30, msgPerSec: 10, idleRoomMs: 10 * 6e4 };
+const LIMITS = { ratedVsSamePerDay: 3, roomsPerIp: 10, connectionsPerIp: 30, maxRooms: 10000, msgBurst: 30, msgPerSec: 10, idleRoomMs: 10 * 6e4 };
 const send = (ws, m) => ws?.readyState === 1 && ws.send(JSON.stringify(m));
 
 function newGame(room) {
@@ -243,11 +243,18 @@ function finish(room, winner, reason) {
   }
 }
 
-// only games between two different signed-in players that got past move 1 are rated
+// Rated: games between two different signed-in players that got past move 1, except (to stop one person
+// farming rating with a second account) games where both seats were taken from the same network, and
+// games beyond the 3rd rated one between the same two accounts in 24 h. Those still count, unrated.
 function saveGame(room) {
   const g = room.game, r = room.result, w = room.seats.w?.user, b = room.seats.b?.user;
   if (r.reason === 'aborted' || !g.history().length || (!w && !b)) return; // nothing worth keeping
-  const rated = !!(w && b && w.id !== b.id && g.history().length >= 2);
+  const eligible = !!(w && b && w.id !== b.id && g.history().length >= 2);
+  if (eligible && room.seats.w.ip && room.seats.w.ip === room.seats.b.ip) r.unrated = 'both players on the same network';
+  else if (eligible && db.prepare(`SELECT COUNT(*) AS n FROM games WHERE rated = 1 AND ended > ?
+      AND ((white = ? AND black = ?) OR (white = ? AND black = ?))`).get(Date.now() - 864e5, w.id, b.id, b.id, w.id).n >= LIMITS.ratedVsSamePerDay)
+    r.unrated = `${LIMITS.ratedVsSamePerDay} rated games against each other in the last 24 hours`;
+  const rated = eligible && !r.unrated;
   if (rated) {
     // a player may be in several games at once: rate from the database, not from this room's copy,
     // or the second result would overwrite the first (lost update)
@@ -323,7 +330,7 @@ function broadcast(room) {
 }
 
 function persist(room) {
-  const seats = Object.fromEntries(COLORS.map(c => [c, room.seats[c] ? { token: room.seats[c].token, userId: room.seats[c].user?.id ?? null } : null]));
+  const seats = Object.fromEntries(COLORS.map(c => [c, room.seats[c] ? { token: room.seats[c].token, userId: room.seats[c].user?.id ?? null, ip: room.seats[c].ip ?? null } : null]));
   const data = { tc: room.tc, listed: room.listed, ip: room.ip, pgn: room.game.pgn(), seats, clock: room.clock, result: room.result, drawOffer: room.drawOffer,
     rematch: [...room.rematch], chat: room.chat, savedAt: Date.now() };
   db.prepare('INSERT OR REPLACE INTO live_rooms VALUES (?, ?, ?)').run(room.id, JSON.stringify(data), room.touched ?? Date.now());
@@ -342,7 +349,7 @@ function restoreRooms() {
       const c = room.clock;
       if (c?.running) { c[c.running] -= d.savedAt - c.since; c.since = Date.now(); } // clocks pause while the server is down
       for (const col of COLORS) if (d.seats[col]) {
-        room.seats[col] = { token: d.seats[col].token, ws: null, user: d.seats[col].userId ? getUser.get(d.seats[col].userId) ?? null : null };
+        room.seats[col] = { token: d.seats[col].token, ws: null, user: d.seats[col].userId ? getUser.get(d.seats[col].userId) ?? null : null, ip: d.seats[col].ip ?? null };
       }
       rooms.set(room.id, room);
       schedule(room);
@@ -369,7 +376,7 @@ function enter(ws, room, color, token = randomUUID()) {
     seat?.ws?.close(); // same seat opened in another tab: the newest one wins
     // the seat's account is fixed when it is first taken: rejoining with the seat token but without
     // (or with another) login must not turn a rated seat into a guest seat or hand it to someone else
-    room.seats[color] = { token, ws, user: seat ? seat.user : ws.user };
+    room.seats[color] = { token, ws, user: seat ? seat.user : ws.user, ip: seat ? seat.ip : ws.ip };
   } else room.watchers.add(ws);
   room.touched = Date.now();
   scheduleAbort(room);
@@ -458,7 +465,10 @@ wss.on('connection', (ws, req) => {
       if (m.t === 'join') {
         const r = typeof m.room === 'string' && rooms.get(m.room);
         if (!r) return send(ws, { t: 'error', msg: 'Game not found. It may have expired.' });
-        const seat = COLORS.find(c => r.seats[c] && ((typeof m.token === 'string' && r.seats[c].token === m.token) || (ws.user && r.seats[c].user?.id === ws.user.id)));
+        // A guest seat is reclaimed with its token. A seat that belongs to an account needs that account's login:
+        // the token alone (left in a tab after signing out, say) only lets you watch.
+        const owns = c => !r.seats[c].user || r.seats[c].user.id === ws.user?.id;
+        const seat = COLORS.find(c => r.seats[c] && owns(c) && ((typeof m.token === 'string' && r.seats[c].token === m.token) || r.seats[c].user));
         const free = COLORS.find(c => !r.seats[c]);
         return seat ? enter(ws, r, seat, r.seats[seat].token) : free ? enter(ws, r, free) : enter(ws, r, null); // full: watch
       }

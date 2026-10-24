@@ -736,7 +736,8 @@ function showOver(r) {
   document.getElementById('overTitle').textContent = resultTitle(r);
   const change = online?.color && r.changes?.[online.color];
   const how = r.reason === 'aborted' ? resultReason(r) : r.winner ? { checkmate: 'by checkmate', resignation: 'by resignation', timeout: 'on time' }[r.reason] : `by ${r.reason}`;
-  document.getElementById('overReason').textContent = how + (change != null ? ` · rating ${change >= 0 ? '+' : ''}${change}` : '');
+  document.getElementById('overReason').textContent = how + (change != null ? ` · rating ${change >= 0 ? '+' : ''}${change}` : '')
+    + (online?.color && r.unrated ? ` · not rated: ${r.unrated}` : '');
   document.getElementById('overMark').textContent = r.reason === 'aborted' ? '–' : !r.winner ? '½' : online?.color && r.winner !== online.color ? '♚\uFE0E' : '♔\uFE0E';
   againBtn.textContent = !online ? 'New game' : online.rematch.includes(otherColor(online.color)) ? 'Accept rematch' : 'Rematch';
   againBtn.hidden = online && !online.color; // spectators can't rematch
@@ -1097,7 +1098,12 @@ btn('chatBtn').onclick = () => {
   if (!btn('chatForm').hidden) btn('chatInput').focus({ preventScroll: true });
 };
 addEventListener('keydown', e => { if (e.key === 'Escape' && document.body.classList.contains('drawer-open')) btn('panelToggle').click(); });
-btn('signOut').onclick = async () => { await api('/api/logout', {}); location.reload(); };
+btn('signOut').onclick = async () => {
+  await api('/api/logout', {});
+  // forget this tab's seat tokens too, so nobody using it next can step back into your games
+  try { for (const k of Object.keys(sessionStorage)) if (k.startsWith('seat:')) sessionStorage.removeItem(k); } catch {}
+  location.reload();
+};
 
 // pull the camera back on tall, narrow screens so the whole board fits
 const fitCamera = () => camera.position.setLength(14.2 * Math.min(2.2, Math.max(1, 0.78 / camera.aspect)));

@@ -15,7 +15,7 @@ assert.deepEqual([ex.rating.toFixed(2), ex.rd.toFixed(2), ex.vol.toFixed(5)], ['
 const PORT = 3999, BASE = `http://localhost:${PORT}`, DB_FILE = join(tmpdir(), `chess-test-${process.pid}.db`);
 let srv;
 async function startServer() {
-  srv = spawn(process.execPath, ['--no-warnings', 'server.js'], { cwd: import.meta.dirname, env: { ...process.env, PORT, DB_FILE }, stdio: ['ignore', 'pipe', 'inherit'] });
+  srv = spawn(process.execPath, ['--no-warnings', 'server.js'], { cwd: import.meta.dirname, env: { ...process.env, PORT, DB_FILE, TRUST_PROXY: '1' }, stdio: ['ignore', 'pipe', 'inherit'] });
   await new Promise(r => srv.stdout.once('data', r));
 }
 async function stopServer() {
@@ -25,8 +25,12 @@ async function stopServer() {
 }
 await startServer();
 
+// each connection gets its own address (the server trusts X-Forwarded-For here): rated games need
+// the two players on different networks
+let nextIp = 0;
 function client(cookie) {
-  const ws = new WebSocket(`ws://localhost:${PORT}/ws`, cookie ? { headers: { cookie } } : {}), inbox = [], waiting = [];
+  const headers = { 'x-forwarded-for': `10.1.${nextIp >> 8}.${nextIp++ & 255}`, ...(cookie ? { cookie } : {}) };
+  const ws = new WebSocket(`ws://localhost:${PORT}/ws`, { headers }), inbox = [], waiting = [];
   ws.on('message', d => {
     const m = JSON.parse(d), i = waiting.findIndex(([t]) => t === m.t);
     i >= 0 ? waiting.splice(i, 1)[0][1](m) : inbox.push(m);

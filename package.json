@@ -4,7 +4,7 @@
   "type": "module",
   "scripts": {
     "start": "node --no-warnings server.js",
-    "dev": "nodemon --no-warnings server.js",
+    "dev": "node --watch --no-warnings server.js",
     "test": "node --no-warnings test-rooms.mjs && node --no-warnings test-security.mjs",
     "vendor": "node vendor.mjs"
   },
@@ -16,7 +16,6 @@
     "ws": "^8.18.0"
   },
   "devDependencies": {
-    "nodemon": "^3.1.14",
     "stockfish": "10.0.2",
     "three": "0.160.0"
   }
