@@ -1,0 +1,59 @@
+# Publishing a GitHub release deploys that release to the VPS: the tests run first, then deploy/deploy.sh
+# copies the code to /opt/3d-chess and restarts the container (the server's .env and database are untouched).
+# Secrets (Settings → Secrets and variables → Actions), see DEPLOY.md "Deploy on release":
+#   SSH_KEY          private key of a key made only for this workflow, whose public half is on the server
+#   SSH_KNOWN_HOSTS  the server's host key line, so the workflow can't be pointed at an impostor
+#   SSH_HOST         e.g. root@72.61.231.244
+name: Deploy on release
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch: # also a "Run workflow" button, to redeploy the default branch by hand
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false # never stop a deploy halfway; the next one waits
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm test
+
+  deploy:
+    needs: test
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+      - name: SSH setup
+        env:
+          SSH_KEY: ${{ secrets.SSH_KEY }}
+          SSH_KNOWN_HOSTS: ${{ secrets.SSH_KNOWN_HOSTS }}
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/id_ed25519 && chmod 600 ~/.ssh/id_ed25519
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          printf 'Host *\n  IdentityFile ~/.ssh/id_ed25519\n  IdentitiesOnly yes\n  StrictHostKeyChecking yes\n  ServerAliveInterval 30\n' > ~/.ssh/config
+      - name: Deploy ${{ github.event.release.tag_name || github.ref_name }}
+        run: ./deploy/deploy.sh "${{ secrets.SSH_HOST }}"
+      - name: Check the live site
+        run: |
+          domain=$(ssh "${{ secrets.SSH_HOST }}" "grep -m1 '^DOMAIN=' /opt/3d-chess/.env | cut -d= -f2")
+          for _ in $(seq 1 20); do
+            curl -fsS "https://$domain/healthz" && exit 0
+            sleep 3
+          done
+          echo "https://$domain/healthz did not answer ok after a minute" >&2
+          ssh "${{ secrets.SSH_HOST }}" 'cd /opt/3d-chess && docker compose ps && docker compose logs --tail 50 app'
+          exit 1
