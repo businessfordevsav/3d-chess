@@ -51,6 +51,24 @@ Beside the game, the server renders plain HTML pages (no scripts) from `pages.js
 
 All absolute URLs come from `APP_URL`, so set it to the real domain in production, otherwise search engines and link previews see `localhost`. After deploying, add the site to Google Search Console and submit `APP_URL/sitemap.xml`.
 
+### Ads (Google AdSense)
+
+Ads are off until `ADSENSE_CLIENT` is set; until then the page loads no ad scripts and keeps its strict security policy.
+
+| Variable | What it's for |
+|---|---|
+| `ADSENSE_CLIENT` | Your publisher id, e.g. `ca-pub-1234567890123456` |
+| `ADSENSE_SLOT_MENU` | A display ad unit id for the Menu |
+| `ADSENSE_SLOT_PAGE` | A display ad unit id for the content pages |
+
+Ads appear only where nobody is playing: in the Menu (the script loads the first time it opens) and on How to play, About, the leaderboard and profiles. There are none during a game, on the game-over screen, or on the privacy, terms and 404 pages. Each slot is labelled "Advertisement", has room reserved so the page doesn't jump, and is hidden when Google has no ad to show. With ads on, the server also serves `/ads.txt`, the security policy allows Google's ad hosts, and the privacy policy gains an Advertising section.
+
+To go live:
+
+1. Deploy with `APP_URL` set, apply at adsense.google.com, and add the site. Approval needs the real domain and its content pages.
+2. Create two responsive display ad units, then set the three variables above and restart.
+3. In AdSense, go to **Privacy & messaging** and publish a **European regulations** message (a Google-certified consent banner). It's required for visitors in the EEA, UK and Switzerland, and the AdSense script shows it automatically, so the site needs no banner of its own.
+
 ## Features
 
 - Drag to orbit the camera and scroll to zoom. Click a piece to see its legal moves, then click a target square to move.

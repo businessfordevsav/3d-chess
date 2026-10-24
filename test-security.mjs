@@ -735,6 +735,29 @@ try {
     closeAll(g); back.close(); h.b.close();
   });
 
+  await check('ads: off by default; with AdSense set up, only the Menu and content pages get slots', async () => {
+    assert.equal((await fetch(BASE + '/ads.txt')).status, 404);
+    assert.doesNotMatch((await fetch(BASE + '/')).headers.get('content-security-policy'), /googlesyndication/, 'ad hosts allowed with ads off');
+    assert.equal((await (await fetch(BASE + '/api/config')).json()).ads, null);
+    await stopServer();
+    await startServer({ ADSENSE_CLIENT: 'ca-pub-1234567890123456', ADSENSE_SLOT_MENU: '1111111111', ADSENSE_SLOT_PAGE: '2222222222' });
+    assert.equal(await (await fetch(BASE + '/ads.txt')).text(), 'google.com, pub-1234567890123456, DIRECT, f08c47fec0942fa0\n');
+    assert.deepEqual((await (await fetch(BASE + '/api/config')).json()).ads, { client: 'ca-pub-1234567890123456', slot: '1111111111' });
+    const policy = (await fetch(BASE + '/')).headers.get('content-security-policy');
+    assert.match(policy, /script-src 'self' 'sha256-[^;]*https:\/\/\*\.googlesyndication\.com/);
+    assert.match(policy, /frame-src https:\/\/\*\.googlesyndication\.com/);
+    assert.match(policy, /frame-ancestors 'none'/, 'the site itself still can\'t be framed');
+    for (const p of ['/how-to-play', '/about', '/leaderboard']) {
+      const html = await (await fetch(BASE + p)).text();
+      assert.match(html, /data-ad-client="ca-pub-1234567890123456" data-ad-slot="2222222222"/, p);
+      assert.match(html, /<script src="\/ads.js" defer><\/script>/, p);
+    }
+    for (const p of ['/privacy', '/terms', '/u/nobody_here']) assert.doesNotMatch(await (await fetch(BASE + p)).text(), /adsbygoogle/, `no ads on ${p}`);
+    assert.match(await (await fetch(BASE + '/privacy')).text(), /<h2 id="ads">Advertising<\/h2>/, 'the privacy policy explains the ads');
+    await stopServer();
+    await startServer();
+  });
+
   // without TRUST_PROXY, X-Forwarded-For is ignored, so a client can't dodge limits by inventing addresses
   await check('F-10b: X-Forwarded-For is ignored unless TRUST_PROXY is set', async () => {
     await stopServer();

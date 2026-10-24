@@ -7,7 +7,11 @@ const day = ms => new Date(ms).toLocaleDateString('en-GB', { day: 'numeric', mon
 const NAV = [['/leaderboard', 'Leaderboard'], ['/how-to-play', 'How to play'], ['/about', 'About']];
 const FOOT = [...NAV, ['/privacy', 'Privacy'], ['/terms', 'Terms']];
 
-export function sitePages(db, APP_URL, CONTACT_EMAIL) {
+export function sitePages(db, APP_URL, CONTACT_EMAIL, ADS) {
+  // ads go where a page body says <!--ad-->: only on content pages (not legal or error pages), never in the game
+  const AD = ADS?.page && `<aside class="ad" aria-label="Advertisement"><span>Advertisement</span>` +
+    `<ins class="adsbygoogle" data-ad-client="${ADS.client}" data-ad-slot="${ADS.page}" data-ad-format="auto" data-full-width-responsive="true"></ins></aside>`;
+  const withAds = body => AD && body.includes('<!--ad-->');
   const contact = CONTACT_EMAIL
     ? `email <a href="mailto:${esc(CONTACT_EMAIL)}">${esc(CONTACT_EMAIL)}</a>`
     : 'use the contact details given by the operator of this site';
@@ -35,14 +39,16 @@ ${noindex ? '<meta name="robots" content="noindex">\n' : ''}<meta name="theme-co
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/pages.css">
-</head>
+${withAds(body) ? `<script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=${ADS.client}" crossorigin="anonymous"></script>
+<script src="/ads.js" defer></script>
+` : ''}</head>
 <body>
 <header class="top">
   <a class="brand" href="/" aria-label="3D Chess, play"><span class="brand-mark" aria-hidden="true">♞</span><span class="brand-name">3D Chess</span></a>
   <nav aria-label="Site">${NAV.map(l => link(l, path)).join('')}<a class="play" href="/">Play</a></nav>
 </header>
 <main>
-${body}
+${body.replaceAll('<!--ad-->', AD || '')}
 </main>
 <footer><div>${FOOT.map(l => link(l, path)).join('')}<span>© ${new Date().getFullYear()} 3D Chess</span></div></footer>
 </body>
@@ -67,6 +73,7 @@ ${body}
 </ul>
 <p>You can sign in to keep a rating and a game history, or continue as a guest.</p>
 
+<!--ad-->
 <h2>Using the 3D board</h2>
 <ul>
   <li><b>Move a piece</b>: click it, then click the square to move to. Legal squares light up.</li>
@@ -115,6 +122,7 @@ ${body}
 <p>Signed-in players have a rating, calculated with the Glicko-2 system, as used by many chess sites. Everyone starts at 1500. A <b>?</b> after a rating means it is still provisional: it moves quickly until you've played a few rated games.</p>
 <p>To keep ratings fair, some games are played unrated: games with a guest, games between two accounts on the same network, and more than three games a day between the same two players.</p>
 <p>See where you stand on the <a href="/leaderboard">leaderboard</a>.</p>
+<!--ad-->
 <a class="cta" href="/">Play now</a>`,
     },
     '/about': {
@@ -138,6 +146,7 @@ ${body}
   <li>Spectators, rematches, draw offers and in-game chat.</li>
   <li>Sign in with email or Google, or play as a guest.</li>
 </ul>
+<!--ad-->
 <h2>Credits</h2>
 <ul>
   <li>The chess set and board are the <a href="https://polyhaven.com/a/chess_set" rel="noopener">Chess Set</a> model by Riley Queen, from Poly Haven (CC0).</li>
@@ -154,7 +163,7 @@ ${body}
       body: `<p class="eyebrow">Legal</p>
 <h1>Privacy policy</h1>
 <p class="muted">Last updated ${UPDATED}</p>
-<p>This policy explains what 3D Chess ("we") collects when you use this site, and why. We collect only what the game needs. There are no ads, no analytics and no tracking, and we don't sell your data.</p>
+<p>This policy explains what 3D Chess ("we") collects when you use this site, and why. We collect only what the game needs, there are no analytics, and we don't sell your data.${ADS ? ' The site shows ads from Google AdSense: see <a href="#ads">Advertising</a>.' : ' There are no ads and no tracking.'}</p>
 
 <h2>What we collect</h2>
 <h3>If you play without an account</h3>
@@ -175,12 +184,21 @@ ${body}
 <p>We use your IP address to limit abuse (for example, too many sign-ups or connections) and to play games between two accounts on the same network unrated. Addresses are kept in memory for these limits, and with a game room while it is in progress, not in your account.</p>
 
 <h2>Cookies</h2>
-<p>We use one cookie, <code>sid</code>, to keep you signed in, and a short-lived one, <code>g_oauth</code>, during Google sign-in. Both are essential, can't be read by scripts and are never used for tracking. Your browser's session storage also remembers your seat in a game you're playing, so you can reload the page without losing it.</p>
-
+<p>We use one cookie, <code>sid</code>, to keep you signed in, and a short-lived one, <code>g_oauth</code>, during Google sign-in. Both are essential, can't be read by scripts and are never used for tracking. Your browser's session storage also remembers your seat in a game you're playing, so you can reload the page without losing it.${ADS ? ' Google sets its own advertising cookies when ads are shown; see below.' : ''}</p>
+${ADS ? `
+<h2 id="ads">Advertising</h2>
+<p>The menu and some pages (never a game in progress) show ads from <b>Google AdSense</b>. Google and its partners use cookies and similar technology to show ads, measure them and, where you allow it, personalise them based on your visits to this and other sites. Google receives your IP address and browser details when an ad loads.</p>
+<ul>
+  <li>Visitors in the EEA, UK and Switzerland are asked for consent first, through Google's consent message, and can change their choice at any time from the "Privacy and cookie settings" link it adds.</li>
+  <li>Elsewhere, you can turn off personalised ads in <a href="https://adssettings.google.com" rel="noopener">Google's ad settings</a>, or for many companies at <a href="https://www.aboutads.info/choices" rel="noopener">aboutads.info</a>.</li>
+  <li>Learn more in <a href="https://policies.google.com/technologies/partner-sites" rel="noopener">how Google uses information from sites that use its services</a>.</li>
+</ul>
+<p>We don't share your account details with advertisers.</p>
+` : ''}
 <h2>Other services</h2>
 <ul>
   <li><b>Google Fonts</b>: the site's fonts are loaded from Google, which receives your IP address and browser details when they load.</li>
-  <li><b>Google</b>, if you choose to sign in with it.</li>
+  <li><b>Google</b>, if you choose to sign in with it.</li>${ADS ? '\n  <li><b>Google AdSense</b>, which shows the ads (see Advertising).</li>' : ''}
   <li><b>Email delivery</b>: account emails are sent through our mail provider.</li>
 </ul>
 
@@ -264,6 +282,7 @@ ${rows.length ? `<div class="scroll"><table class="table">
 <tbody>
 ${rows.map((r, i) => `<tr><td class="rank">${i + 1}</td><td>${playerLink(r.name)}</td><td class="num">${Math.round(r.rating)}</td><td class="num hide-sm">${r.played}</td></tr>`).join('\n')}
 </tbody></table></div>` : '<div class="card"><p>No ranked players yet. Play a few rated games online to be the first.</p></div>'}
+<!--ad-->
 <a class="cta" href="/">Play a rated game</a>`,
     };
   }
@@ -296,6 +315,7 @@ ${games.map(g => {
       `<td class="num">${g.rated ? (change >= 0 ? '+' : '') + change : '<span class="muted">unrated</span>'}</td><td class="num hide-sm muted">${day(g.ended)}</td></tr>`;
   }).join('\n')}
 </tbody></table></div>` : '<div class="card"><p>No finished games yet.</p></div>'}
+<!--ad-->
 <a class="cta" href="/">Play now</a>`,
     };
   }
