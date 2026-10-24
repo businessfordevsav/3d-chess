@@ -82,3 +82,9 @@ footer span { margin-left: auto; }
   .table .hide-sm { display: none; }
   footer span { margin-left: 0; width: 100%; }
 }
+
+/* ad slots (AdSense): labelled, with room reserved so the page doesn't jump; hidden when no ad is served */
+.ad { margin: 32px 0; padding: 10px 0; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+.ad span { display: block; color: var(--muted); font-size: 10px; letter-spacing: .14em; text-transform: uppercase; margin-bottom: 6px; }
+.ad ins { display: block; min-height: 100px; }
+.ad:has(ins[data-ad-status="unfilled"]) { display: none; }

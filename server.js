@@ -195,9 +195,20 @@ const redirect = (res, to) => res.writeHead(302, { Location: to, 'Cache-Control'
 // Sent with every response. Scripts come only from this site (three.js, chess.js and Stockfish are served
 // from vendor/); the page's own inline scripts (import map, module script) are allowed by their exact hash,
 // so no other inline script can run. Only the fonts come from Google.
-const csp = (scriptHashes = []) => ["default-src 'self'", ["script-src 'self'", ...scriptHashes.map(h => `'sha256-${h}'`)].join(' '),
+// --- ads: Google AdSense, off (no scripts, strict CSP) unless ADSENSE_CLIENT is set ---
+// ADSENSE_CLIENT is the publisher id (ca-pub-…); the slots are ad unit ids from the AdSense dashboard.
+// Consent for visitors in the EEA, UK and Switzerland is Google's own message (AdSense > Privacy & messaging),
+// served by the same AdSense script, so there is no banner of our own.
+const slot = v => /^\d{5,20}$/.test(v ?? '') ? v : null;
+const ADS = /^ca-pub-\d{10,20}$/.test(process.env.ADSENSE_CLIENT ?? '')
+  ? { client: process.env.ADSENSE_CLIENT, menu: slot(process.env.ADSENSE_SLOT_MENU), page: slot(process.env.ADSENSE_SLOT_PAGE) } : null;
+if (process.env.ADSENSE_CLIENT && !ADS) console.warn('warning: ADSENSE_CLIENT should look like ca-pub-1234567890123456; ads are off');
+// the hosts AdSense loads scripts, ad frames, pixels and its consent message from
+const AD_HOSTS = 'https://*.googlesyndication.com https://*.google.com https://*.gstatic.com https://*.doubleclick.net https://*.adtrafficquality.google';
+const csp = (scriptHashes = []) => ["default-src 'self'", ["script-src 'self'", ...scriptHashes.map(h => `'sha256-${h}'`), ...(ADS ? [AD_HOSTS] : [])].join(' '),
   "worker-src 'self'", "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com", "font-src https://fonts.gstatic.com",
-  "img-src 'self' data: blob:", "connect-src 'self'", "object-src 'none'", "base-uri 'none'", "form-action 'self'", "frame-ancestors 'none'"].join('; ');
+  `img-src 'self' data: blob:${ADS ? ' https:' : ''}`, `connect-src 'self'${ADS ? ' ' + AD_HOSTS : ''}`, ...(ADS ? [`frame-src ${AD_HOSTS}`] : []),
+  "object-src 'none'", "base-uri 'none'", "form-action 'self'", "frame-ancestors 'none'"].join('; ');
 // hashes of the inline scripts that run (the import map and the module); JSON-LD is data, not script, so it's skipped
 const inlineScriptHashes = html => [...html.toString().matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script>/g)]
   .filter(m => m[2].trim() && !m[1].includes('application/ld+json')).map(m => createHash('sha256').update(m[2]).digest('base64'));
@@ -205,7 +216,9 @@ const SECURITY_HEADERS = {
   'Content-Security-Policy': csp(),
   'X-Frame-Options': 'DENY', // no framing: stops clickjacking of Resign and similar buttons
   'X-Content-Type-Options': 'nosniff',
-  'Referrer-Policy': 'same-origin', // game links and one-time links in the URL don't leak to the font host
+  // game links and one-time links in the URL don't leak to the font host; with ads on, other sites get only
+  // the origin, which AdSense needs to serve ads for this site
+  'Referrer-Policy': ADS ? 'strict-origin-when-cross-origin' : 'same-origin',
 };
 async function readJson(req) {
   let body = '';
@@ -379,7 +392,7 @@ async function api(req, res, path) {
   }
   if (req.method === 'GET') {
     if (path === '/api/me') return json(res, 200, { user: selfUser(userFromReq(req)) });
-    if (path === '/api/config') return json(res, 200, { google: !!GOOGLE.id });
+    if (path === '/api/config') return json(res, 200, { google: !!GOOGLE.id, ads: ADS?.menu ? { client: ADS.client, slot: ADS.menu } : null });
     if (path === '/api/usernames/check' || path === '/api/usernames/suggest') {
       if (!usernameLimit(clientIp(req))) return json(res, 429, { error: 'Slow down a little.' });
       if (path.endsWith('suggest')) return json(res, 200, { name: generateUsername() });
@@ -495,7 +508,7 @@ async function google(req, res, url) {
 // --- static files: the page, its icons and share image, the 3D model and the vendored libraries ---
 // Text-like files are compressed (brotli or gzip) once per version and kept in memory; every file gets an
 // ETag so repeat visits revalidate with a cheap 304 instead of downloading again.
-const PUBLIC_FILES = new Set(['pages.css', 'icon.svg', 'og-image.jpg', 'apple-touch-icon.png', 'icon-192.png', 'icon-512.png', 'site.webmanifest']);
+const PUBLIC_FILES = new Set(['pages.css', 'ads.js', 'icon.svg', 'og-image.jpg', 'apple-touch-icon.png', 'icon-192.png', 'icon-512.png', 'site.webmanifest']);
 const COMPRESSIBLE = new Set(['.html', '.css', '.js', '.gltf', '.bin', '.svg', '.webmanifest', '.xml', '.txt']);
 const compressed = new Map(); // `${file}:${mtime}:${encoding}` -> Buffer
 function publicFile(path) {
@@ -550,7 +563,7 @@ ${pages.sitemap().map(([p, last]) => `  <url><loc>${APP_URL}${p}</loc><lastmod>$
 </urlset>
 `;
 // how to play, about, privacy, terms, leaderboard and /u/<name> profiles (see pages.js)
-const pages = sitePages(db, APP_URL, process.env.CONTACT_EMAIL);
+const pages = sitePages(db, APP_URL, process.env.CONTACT_EMAIL, ADS);
 
 const server = createServer(async (req, res) => {
   for (const [k, v] of Object.entries(SECURITY_HEADERS)) res.setHeader(k, v);
@@ -565,6 +578,9 @@ const server = createServer(async (req, res) => {
     return google(req, res, new URL(req.url, 'http://x')).catch(() => redirect(res, '/?auth=failed'));
   }
   if (path === '/robots.txt') return res.writeHead(200, { 'Content-Type': TYPES['.txt'], 'Cache-Control': 'public, max-age=3600' }).end(robotsTxt());
+  // AdSense's authorized-seller file; f08c47fec0942fa0 is Google's own fixed id
+  if (path === '/ads.txt' && ADS) return res.writeHead(200, { 'Content-Type': TYPES['.txt'], 'Cache-Control': 'public, max-age=3600' })
+    .end(`google.com, ${ADS.client.replace('ca-', '')}, DIRECT, f08c47fec0942fa0\n`);
   if (path === '/sitemap.xml') return res.writeHead(200, { 'Content-Type': TYPES['.xml'], 'Cache-Control': 'public, max-age=3600' }).end(sitemapXml());
   const isRead = ['GET', 'HEAD'].includes(req.method);
   const page = isRead && pages.render(path);

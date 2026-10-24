@@ -184,6 +184,11 @@
   #liveList li { display: flex; justify-content: space-between; align-items: center; gap: 10px; background: rgba(0, 0, 0, .25);
                  border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 8px 8px 8px 12px; }
   #closeLobby { display: block; margin: 20px auto 0; }
+  /* the Menu's ad slot (AdSense): labelled, room reserved, hidden when nothing is served */
+  #menuAd { margin-top: 18px; padding-top: 12px; border-top: 1px solid var(--line); }
+  #menuAd span { display: block; color: var(--muted); font-size: 10px; letter-spacing: .14em; text-transform: uppercase; margin-bottom: 6px; text-align: center; }
+  #menuAd ins { display: block; min-height: 90px; }
+  #menuAd:has(ins[data-ad-status="unfilled"]) { display: none; }
   .site-links { display: flex; flex-wrap: wrap; justify-content: center; gap: 4px 14px; margin-top: 14px; font-size: 12px; }
   .site-links a, .hint a { color: var(--muted); text-underline-offset: 3px; }
   .site-links a { text-decoration: none; }
@@ -429,6 +434,7 @@
       <ul id="liveList"></ul>
     </div>
     <button id="closeLobby" class="link">Back to the board</button>
+    <aside id="menuAd" aria-label="Advertisement" hidden><span>Advertisement</span></aside>
     <nav class="site-links" aria-label="More"><a href="/leaderboard">Leaderboard</a><a href="/how-to-play">How to play</a><a href="/about">About</a><a href="/privacy">Privacy</a><a href="/terms">Terms</a></nav>
   </div>
 </div>
@@ -1178,6 +1184,7 @@ async function onServer(m) {
 const toServer = m => net?.readyState === 1 ? send(m) : connect(() => m);
 function showLobby() {
   btn('lobby').hidden = false;
+  showMenuAd();
   if (net?.readyState !== 1) connect(() => ({ t: 'lobby' }));
 }
 function showLobbyGames(games) {
@@ -1362,6 +1369,22 @@ btn('guestBtn').onclick = async () => {
   location.reload();
 };
 let googleOn = false;
+// ads (AdSense) in the Menu only, never during a game; the script loads the first time the Menu opens
+let adsConfig = null, menuAdShown = false;
+function showMenuAd() {
+  if (!adsConfig || menuAdShown) return;
+  menuAdShown = true;
+  const s = document.createElement('script');
+  s.async = true;
+  s.crossOrigin = 'anonymous';
+  s.src = 'https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=' + encodeURIComponent(adsConfig.client);
+  document.head.append(s);
+  const ins = Object.assign(document.createElement('ins'), { className: 'adsbygoogle' });
+  Object.assign(ins.dataset, { adClient: adsConfig.client, adSlot: adsConfig.slot, adFormat: 'auto', fullWidthResponsive: 'true' });
+  btn('menuAd').append(ins);
+  btn('menuAd').hidden = false; // visible before the push, so AdSense can measure the width
+  (window.adsbygoogle = window.adsbygoogle || []).push({});
+}
 btn('googleBtn').onclick = () => {
   try { if (linkRoom) sessionStorage.setItem('returnTo', location.pathname); } catch {}
   location.href = '/auth/google';
@@ -1414,6 +1437,7 @@ try { const n = sessionStorage.getItem('notice'); if (n) { sessionStorage.remove
 
 Promise.all([api('/api/config').catch(() => ({})), api('/api/me')]).then(([config, r]) => {
   googleOn = !!config.google;
+  adsConfig = config.ads ?? null;
   if (r.status === 404) return enterSite(); // no game server (static hosting): no accounts, local play only
   me = r.user;
   if (me) enterSite();
