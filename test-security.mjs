@@ -741,10 +741,13 @@ try {
     assert.doesNotMatch((await fetch(BASE + '/')).headers.get('content-security-policy'), /googlesyndication/, 'ad hosts allowed with ads off');
     assert.equal((await (await fetch(BASE + '/api/config')).json()).ads, null);
     assert.doesNotMatch(await (await fetch(BASE + '/')).text(), /google-adsense-account/);
+    const before = (await fetch(BASE + '/')).headers.get('etag');
     await stopServer();
     await startServer({ ADSENSE_CLIENT: 'ca-pub-1234567890123456', ADSENSE_SLOT_MENU: '1111111111', ADSENSE_SLOT_PAGE: '2222222222' });
     assert.equal(await (await fetch(BASE + '/ads.txt')).text(), 'google.com, pub-1234567890123456, DIRECT, f08c47fec0942fa0\n');
     assert.deepEqual((await (await fetch(BASE + '/api/config')).json()).ads, { client: 'ca-pub-1234567890123456', slot: '1111111111' });
+    // the page changed though index.html didn't: a browser holding the old copy must not get a 304
+    assert.equal((await fetch(BASE + '/', { headers: { 'if-none-match': before } })).status, 200, 'stale page kept after turning ads on');
     for (const p of ['/', '/about', '/privacy']) // the site-ownership tag Google's review looks for, on every page
       assert.match(await (await fetch(BASE + p)).text(), /<meta name="google-adsense-account" content="ca-pub-1234567890123456">/, p);
     const policy = (await fetch(BASE + '/')).headers.get('content-security-policy');
