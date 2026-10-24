@@ -1,6 +1,6 @@
 # 3D Chess
 
-A 3D chess game that runs in the browser: Three.js renders the board, chess.js enforces the rules, and Stockfish 10 is the computer opponent. Everything lives in `index.html`, with the libraries loaded from a CDN. There is no build step.
+A 3D chess game that runs in the browser: Three.js renders the board, chess.js enforces the rules, and Stockfish 10 is the computer opponent. The page is `index.html`; the browser libraries are served by the site itself from `vendor/`, not from public CDNs. There is no build step.
 
 ## Run
 
@@ -14,6 +14,14 @@ Then open http://localhost:3000. The Node server (`server.js`) serves the game, 
 `npm test` starts a server on port 3999 and checks the Glicko-2 maths against the paper's worked example, the room protocol and accounts: sign-up and sign-in, rated games and profiles, joining, spectators, chat, matchmaking, turn order, illegal moves, clocks, draw offers, rematch, resigning, reconnecting, resuming games after a restart, losing on time (including the draw when the opponent can't mate), and which files get served.
 
 `npm test` also runs `test-security.mjs` on port 3998: chess rules enforced by the server (castling, en passant, promotion, check, draws), an adversarial scenario matrix (double moves, races, replays, forged results, spectators acting, late moves, malformed messages, restarts), and regressions for the security fixes.
+
+### Browser libraries (`vendor/`)
+
+three.js, chess.js and Stockfish are copied from `node_modules` into `vendor/` (committed), so the site serves its own scripts and its Content Security Policy allows scripts only from itself. Their versions are pinned in `package.json` and checked against `package-lock.json`'s integrity hashes on install. After changing one, run:
+
+```bash
+npm run vendor
+```
 
 ### Deploying behind a proxy
 
@@ -43,3 +51,5 @@ restart(() => game.load('7k/1P6/8/8/8/8/8/K7 w - - 0 1'))
 ## Credits
 
 The realistic pieces and marble board are the [Chess Set](https://polyhaven.com/a/chess_set) model by Riley Queen, from Poly Haven, licensed CC0. They're stored in `models/chess_set/` at 1k texture resolution (7 MB).
+
+Stockfish 10 (the asm.js build from the `stockfish` npm package) is free software under the GPL-3.0; its license is in `vendor/stockfish.COPYING.txt` and its source is at https://github.com/nmrugg/stockfish.js (v10.0.2). three.js (MIT) and chess.js (BSD-2-Clause) licenses are in `vendor/` too.

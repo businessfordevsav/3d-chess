@@ -432,6 +432,23 @@ try {
     }
     assert.equal((await fetch(BASE + '/api/me')).headers.get('cache-control'), 'no-store');
   });
+  await check('F-15: scripts come only from this site; the page\'s inline scripts are allowed by exact hash', async () => {
+    const r = await fetch(BASE + '/'), html = await r.text();
+    const scriptSrc = r.headers.get('content-security-policy').split('; ').find(d => d.startsWith('script-src '));
+    assert.doesNotMatch(scriptSrc, /unsafe-inline|unsafe-eval|https?:|blob:|\*/, `script-src too loose: ${scriptSrc}`);
+    // the hashes must match the page's inline scripts exactly, or the browser would block them
+    const { createHash } = await import('node:crypto');
+    const want = [...html.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/g)].filter(m => m[1].trim())
+      .map(m => `'sha256-${createHash('sha256').update(m[1]).digest('base64')}'`);
+    assert.equal(want.length, 2, 'expected the import map and the module script');
+    for (const h of want) assert.ok(scriptSrc.includes(h), `missing hash ${h}`);
+    assert.doesNotMatch(html, /cdn\.jsdelivr|cdnjs|unpkg/, 'the page still references a script CDN');
+    // the vendored libraries are served as JavaScript, and nothing outside vendor/ leaks through it
+    for (const p of ['/vendor/three/build/three.module.js', '/vendor/three/examples/jsm/loaders/GLTFLoader.js', '/vendor/chess.js', '/vendor/stockfish.js'])
+      assert.match((await fetch(BASE + p)).headers.get('content-type'), /text\/javascript/, p);
+    for (const p of ['/vendor/../server.js', '/vendor/%2e%2e/package.json', '/vendor/', '/node_modules/ws/package.json'])
+      assert.equal((await fetch(BASE + p)).status, 404, p);
+  });
   await check('F-13: an unknown name and a wrong password look the same to the client', async () => {
     await signup('ivy');
     const a = await post('/api/login', { name: 'ivy', password: 'wrong password' }), b = await post('/api/login', { name: 'nobody_here', password: 'wrong password' });
