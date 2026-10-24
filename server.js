@@ -531,7 +531,10 @@ async function serveFile(req, res, file, path) {
   if (path.startsWith('/g/')) res.setHeader('X-Robots-Tag', 'noindex, nofollow'); // private game links stay out of search results
   let body = await readFile(join(ROOT, file));
   if (page) {
-    body = Buffer.from(body.toString().replaceAll('__APP_URL__', APP_URL)); // absolute URLs for canonical, Open Graph, JSON-LD
+    let html = body.toString().replaceAll('__APP_URL__', APP_URL); // absolute URLs for canonical, Open Graph, JSON-LD
+    // AdSense's site-ownership tag (no script), so Google can review and verify the site before any ad unit exists
+    if (ADS) html = html.replace('<meta name="theme-color"', `<meta name="google-adsense-account" content="${ADS.client}">\n<meta name="theme-color"`);
+    body = Buffer.from(html);
     // hashed each time, so edits stay in sync; also on a 304, whose headers replace the cached ones,
     // or a refresh would get the hash-less default CSP and block the page's own scripts
     res.setHeader('Content-Security-Policy', csp(inlineScriptHashes(body)));
