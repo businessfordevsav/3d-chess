@@ -51,7 +51,7 @@ Rate limits (sign-ups, logins, connections, waiting rooms) are per client addres
 
 The page carries a title, description, canonical link, Open Graph and Twitter cards (`og-image.jpg`, 1200×630) and JSON-LD structured data. The server also serves `/robots.txt` and `/sitemap.xml`, marks private game links (`/g/…`), `/api` and `/auth` as `noindex`, and compresses text files (brotli or gzip) with ETags, so repeat visits get a 304.
 
-Beside the game, the server renders plain HTML pages (no scripts) from `pages.js`, styled by `pages.css`: `/how-to-play`, `/about`, `/privacy`, `/terms`, `/leaderboard` (players with a settled rating) and `/u/<name>` profiles. The sitemap lists them, plus every registered player with a rated game; guest profiles and unknown pages are `noindex`. The privacy policy and terms describe what this code does, but they are a starting point, not legal advice: review them, and set `CONTACT_EMAIL`, before launch.
+Beside the game, the server renders plain HTML pages (no scripts) from `pages.js`, styled by `pages.css`: `/learn` and its chess guides (written in `learn.js`), `/how-to-play`, `/about`, `/privacy`, `/terms`, `/leaderboard` (players with a settled rating) and `/u/<name>` profiles. The sitemap lists them, plus every registered player with a rated game; guest profiles and unknown pages are `noindex`. The privacy policy and terms describe what this code does, but they are a starting point, not legal advice: review them, and set `CONTACT_EMAIL`, before launch.
 
 All absolute URLs come from `APP_URL`, so set it to the real domain in production, otherwise search engines and link previews see `localhost`. After deploying, add the site to Google Search Console and submit `APP_URL/sitemap.xml`.
 

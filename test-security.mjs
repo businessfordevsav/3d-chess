@@ -652,7 +652,7 @@ try {
     closeAll({ w: anon, b: host }, { w: guest });
   });
   await check('pages: how to play, about, privacy, terms, leaderboard and profiles are indexable HTML with no scripts', async () => {
-    for (const p of ['/how-to-play', '/about', '/privacy', '/terms', '/leaderboard']) {
+    for (const p of ['/learn', '/learn/rook-endgames', '/how-to-play', '/about', '/privacy', '/terms', '/leaderboard']) {
       const r = await fetch(BASE + p), html = await r.text();
       assert.equal(r.status, 200, p);
       assert.equal(r.headers.get('x-robots-tag'), null, `${p} must stay indexable`);
@@ -674,7 +674,7 @@ try {
     assert.deepEqual([missing.status, missing.headers.get('x-robots-tag')], [404, 'noindex']);
     assert.match(missing.headers.get('content-type'), /html/);
     const sitemap = await (await fetch(BASE + '/sitemap.xml')).text();
-    for (const p of ['/how-to-play', '/about', '/privacy', '/terms', '/leaderboard']) assert.match(sitemap, new RegExp(`<loc>${BASE}${p}</loc>`));
+    for (const p of ['/learn', '/learn/chess-notation', '/how-to-play', '/about', '/privacy', '/terms', '/leaderboard']) assert.match(sitemap, new RegExp(`<loc>${BASE}${p}</loc>`));
     assert.doesNotMatch(sitemap, /Pia_Plays/, 'players appear in the sitemap only after a rated game');
   });
   await check('F-13: an unknown name and a wrong password look the same to the client', async () => {
@@ -754,7 +754,7 @@ try {
     assert.match(policy, /script-src 'self' 'sha256-[^;]*https:\/\/\*\.googlesyndication\.com/);
     assert.match(policy, /frame-src https:\/\/\*\.googlesyndication\.com/);
     assert.match(policy, /frame-ancestors 'none'/, 'the site itself still can\'t be framed');
-    for (const p of ['/how-to-play', '/about', '/leaderboard']) {
+    for (const p of ['/learn', '/learn/opening-principles', '/how-to-play', '/about', '/leaderboard']) {
       const html = await (await fetch(BASE + p)).text();
       assert.match(html, /data-ad-client="ca-pub-1234567890123456" data-ad-slot="2222222222"/, p);
       assert.match(html, /<script src="\/ads.js" defer><\/script>/, p);
