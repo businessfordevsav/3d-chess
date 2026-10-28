@@ -50,6 +50,8 @@ kbd, code { font: 14px var(--mono); background: var(--raised); border: 1px solid
 .card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 4px 18px; margin: 16px 0; }
 .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 12px; margin: 16px 0; }
 .grid .card { margin: 0; padding: 14px 18px; }
+a.card { display: block; text-decoration: none; color: inherit; }
+a.card:hover { border-color: var(--line-strong); background: var(--raised); }
 .grid .card h3 { margin: 0 0 4px; font-size: 20px; color: var(--gold); }
 .grid .card p { margin: 0; color: var(--muted); font-size: 15px; }
 

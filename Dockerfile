@@ -8,7 +8,7 @@ ENV NODE_ENV=production PORT=3000 DB_FILE=/data/chess.db
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev && npm cache clean --force
 
-COPY server.js glicko2.js pages.js index.html pages.css ads.js icon.svg og-image.jpg apple-touch-icon.png \
+COPY server.js glicko2.js pages.js learn.js index.html pages.css ads.js icon.svg og-image.jpg apple-touch-icon.png \
      icon-192.png icon-512.png site.webmanifest ./
 COPY vendor ./vendor
 COPY models ./models

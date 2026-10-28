@@ -1,10 +1,12 @@
-// The pages beside the game: how to play, about, privacy, terms, the leaderboard and public player profiles.
+import { ARTICLES } from './learn.js';
+
+// The pages beside the game: learn articles, how to play, about, privacy, terms, the leaderboard and public player profiles.
 // Rendered on the server as plain HTML with no scripts (so the default CSP applies), styled by /pages.css,
 // so they load fast and search engines can read them in full.
 const UPDATED = '24 October 2026'; // privacy and terms: change when their text changes
 const esc = s => String(s).replace(/[&<>"']/g, c => `&#${c.charCodeAt(0)};`);
 const day = ms => new Date(ms).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' });
-const NAV = [['/leaderboard', 'Leaderboard'], ['/how-to-play', 'How to play'], ['/about', 'About']];
+const NAV = [['/learn', 'Learn'], ['/leaderboard', 'Leaderboard'], ['/how-to-play', 'How to play'], ['/about', 'About']];
 const FOOT = [...NAV, ['/privacy', 'Privacy'], ['/terms', 'Terms']];
 
 export function sitePages(db, APP_URL, CONTACT_EMAIL, ADS) {
@@ -255,6 +257,30 @@ ${ADS ? `
 <p>Questions about these terms? Please ${contact}.</p>`,
     },
   };
+  // /learn lists the articles by level; each article links on to the next two
+  const LEVELS = [...new Set(ARTICLES.map(a => a.level))];
+  STATIC['/learn'] = {
+    title: 'Learn Chess: Free Guides to Openings, Tactics and Endgames',
+    description: 'Free chess guides for beginners and club players: notation, opening principles, tactics, checkmate patterns, endgames, strategy and how to improve.',
+    body: `<p class="eyebrow">Learn</p>
+<h1>Learn chess</h1>
+<p class="lede">Guides to every stage of the game, from reading notation to winning rook endgames. Each one ends with something to try on the board.</p>
+${LEVELS.map((level, i) => `<h2>${level}</h2>
+<div class="grid">
+${ARTICLES.filter(a => a.level === level).map(a => `  <a class="card" href="/learn/${a.slug}"><h3>${esc(a.title)}</h3><p>${esc(a.description)}</p></a>`).join('\n')}
+</div>${i === 1 ? '\n<!--ad-->' : ''}`).join('\n')}
+<a class="cta" href="/">Play now</a>`,
+  };
+  ARTICLES.forEach((a, i) => {
+    const next = [1, 2].map(n => ARTICLES[(i + n) % ARTICLES.length]);
+    STATIC[`/learn/${a.slug}`] = { title: a.title, description: a.description, body: `<p class="eyebrow"><a href="/learn">Learn</a> · ${a.level}</p>
+<h1>${esc(a.title)}</h1>
+<p class="lede">${esc(a.description)}</p>
+${a.body}
+<h2>Keep learning</h2>
+<ul>${next.map(n => `<li><a href="/learn/${n.slug}">${esc(n.title)}</a></li>`).join('')}<li><a href="/learn">All guides</a></li></ul>
+<a class="cta" href="/">Practise on the board</a>` };
+  });
 
   const leaders = db.prepare(`SELECT u.name, u.rating, (SELECT COUNT(*) FROM games g WHERE g.rated = 1 AND (g.white = u.id OR g.black = u.id)) AS played
     FROM users u WHERE u.guest = 0 AND u.rd <= 110 ORDER BY u.rating DESC LIMIT 100`); // rd <= 110: provisional ratings aren't ranked
