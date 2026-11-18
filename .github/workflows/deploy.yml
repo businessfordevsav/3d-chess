@@ -3,7 +3,7 @@
 # Secrets (Settings → Secrets and variables → Actions), see DEPLOY.md "Deploy on release":
 #   SSH_KEY          private key of a key made only for this workflow, whose public half is on the server
 #   SSH_KNOWN_HOSTS  the server's host key line, so the workflow can't be pointed at an impostor
-#   SSH_HOST         e.g. root@72.61.231.244
+#   SSH_HOST         e.g. root@187.52.122.97
 name: Deploy on release
 
 on:

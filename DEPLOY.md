@@ -1,6 +1,6 @@
 # Deploying 3D Chess
 
-3D Chess runs on the shared VPS (`root@72.61.231.244`, Hostinger) next to Murmurline, shift and tradeflow.
+3D Chess runs on the shared VPS (`root@187.52.122.97`, Hostinger) next to Murmurline, shift and tradeflow.
 The box's Traefik (`/docker/traefik`) sends your domain to the game and gets its HTTPS certificate from
 Let's Encrypt; 3D Chess only adds labels to its own container, so Traefik and the other projects need no
 changes. The game lives in `/opt/3d-chess` with its own container (`3d-chess`), Docker network and SQLite
@@ -12,17 +12,17 @@ At your domain registrar:
 
 | Type | Name | Value |
 |---|---|---|
-| A | `@` | `72.61.231.244` |
+| A | `@` | `187.52.122.97` |
 | CNAME | `www` | your domain (redirected to the bare domain) |
 
-Wait until `dig +short yourdomain.com` prints `72.61.231.244` before the first deploy: Let's Encrypt checks the
+Wait until `dig +short yourdomain.com` prints `187.52.122.97` before the first deploy: Let's Encrypt checks the
 domain over HTTP when Traefik asks for the certificate. If you don't want `www`, delete the six `chess-www`
 labels from `docker-compose.yml`.
 
 ## 2. Settings (once)
 
 ```sh
-ssh root@72.61.231.244
+ssh root@187.52.122.97
 mkdir -p /opt/3d-chess && cd /opt/3d-chess
 nano .env      # paste .env.example from this repo and fill it in
 chmod 600 .env
@@ -64,14 +64,14 @@ emails you.
 One-time setup:
 
 1. A key only for GitHub, on your computer: `ssh-keygen -t ed25519 -N "" -C github-deploy-3d-chess -f ~/.ssh/3d-chess-deploy`
-2. Allow it on the server: `ssh-copy-id -i ~/.ssh/3d-chess-deploy.pub root@72.61.231.244`
+2. Allow it on the server: `ssh-copy-id -i ~/.ssh/3d-chess-deploy.pub root@187.52.122.97`
 3. In the GitHub repo, open **Settings → Secrets and variables → Actions** and add three repository secrets:
 
 | Secret | Value |
 |---|---|
 | `SSH_KEY` | the whole private key: `cat ~/.ssh/3d-chess-deploy` |
-| `SSH_KNOWN_HOSTS` | the server's host key: `ssh-keyscan -t ed25519 72.61.231.244` (should show fingerprint `SHA256:ErDV1Q+2JiCjtJA6qgm/TvRxJWeNYOpeI9KNkBqMV8E`) |
-| `SSH_HOST` | `root@72.61.231.244` |
+| `SSH_KNOWN_HOSTS` | the server's host key: `ssh-keyscan -t ed25519 187.52.122.97` (should show fingerprint `SHA256:CQYtg7LG6SyLYOu2Uh5OM/EM4uW5b9uDdVLAwP0HdEc`) |
+| `SSH_HOST` | `root@187.52.122.97` |
 
 If the key ever leaks, delete its line (ending in `github-deploy-3d-chess`) from `/root/.ssh/authorized_keys` on the
 server and make a new one.
@@ -86,7 +86,7 @@ nightly from root's crontab (`crontab -e` on the server):
 ```
 
 That keeps the last 14 days in `/opt/3d-chess-backups`, outside the folder a deploy syncs. Keep a copy off the
-server too, for example from your computer: `rsync -az root@72.61.231.244:/opt/3d-chess-backups/ ./chess-backups/`.
+server too, for example from your computer: `rsync -az root@187.52.122.97:/opt/3d-chess-backups/ ./chess-backups/`.
 
 To restore one:
 
