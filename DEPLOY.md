@@ -19,6 +19,9 @@ Wait until `dig +short yourdomain.com` prints `187.52.122.97` before the first d
 domain over HTTP when Traefik asks for the certificate. If you don't want `www`, delete the six `chess-www`
 labels from `docker-compose.yml`.
 
+Moving to a new domain? Point both at the VPS, make the new one `DOMAIN`/`APP_URL`, and set `REDIRECT_DOMAIN` to the
+old one: it and its `www` then 301-redirect to the new domain, path kept.
+
 ## 2. Settings (once)
 
 ```sh
