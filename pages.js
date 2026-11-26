@@ -346,7 +346,7 @@ ${games.map(g => {
     };
   }
 
-  // --- /admin: the owner's dashboard (server.js checks ADMIN_USERS before rendering it) ---
+  // --- /admin: the owner's dashboard (server.js checks the admin login before rendering it) ---
   // ponytail: full scans of users/games on each view; add an index on games(ended) if it ever gets slow
   const counts = db.prepare(`SELECT
       (SELECT COUNT(*) FROM users WHERE guest = 0) AS accounts, (SELECT COUNT(*) FROM users WHERE guest = 1) AS guests,

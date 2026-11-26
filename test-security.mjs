@@ -139,6 +139,11 @@ await startServer();
 
 try {
   // ===== chess rules, enforced by the server =====
+  await check('/admin is a plain 404 when ADMIN_PASSWORD is not set', async () => {
+    const r = await fetch(BASE + '/admin', { headers: { authorization: 'Basic ' + Buffer.from('admin:').toString('base64') } });
+    assert.equal(r.status, 404);
+    assert.equal(r.headers.get('www-authenticate'), null);
+  });
   await check('rules: castling through an attacked square is refused, the other side is allowed', async () => {
     const g = await seat('castle0001');
     let s = await play(g, 'w', 'e1', 'g1');

@@ -39,7 +39,7 @@ await new Promise(r => mock.listen(GPORT, r));
 const outbox = [];
 const srv = spawn(process.execPath, ['--no-warnings', 'server.js'], {
   cwd: import.meta.dirname, stdio: ['ignore', 'pipe', 'inherit'],
-  env: { ...process.env, PORT, DB_FILE, TRUST_PROXY: '1', APP_URL: BASE, SMTP_HOST: '', ADMIN_USERS: ' Boss , other',
+  env: { ...process.env, PORT, DB_FILE, TRUST_PROXY: '1', APP_URL: BASE, SMTP_HOST: '', ADMIN_PASSWORD: 'test admin password',
     GOOGLE_CLIENT_ID: 'test-client', GOOGLE_CLIENT_SECRET: 'test-secret',
     GOOGLE_AUTH_URL: `${GBASE}/auth`, GOOGLE_TOKEN_URL: `${GBASE}/token`, GOOGLE_USERINFO_URL: `${GBASE}/userinfo` },
 });
@@ -389,18 +389,24 @@ try {
     assert.equal((await post('/api/account/nope', {}, { cookie: await signup('uma') })).status, 404);
     assert.equal((await post('/api/signup', [1, 2])).status, 400);
   });
-  await check('/admin shows stats only to accounts in ADMIN_USERS; everyone else gets a plain 404', async () => {
-    const anon = await get('/admin');
-    assert.equal(anon.status, 404);
-    assert.equal(anon.headers.get('cache-control'), 'no-store');
-    assert.match(anon.headers.get('x-robots-tag'), /noindex/);
-    assert.doesNotMatch(await anon.text(), /Sign-ups/);
-    assert.equal((await get('/admin', { cookie: await signup('notboss') })).status, 404, 'a signed-in non-admin');
-    const ok = await get('/admin', { cookie: await signup('boss') }); // listed as " Boss ": trimmed, any case
+  await check('/admin has its own login: game accounts and wrong passwords get the login prompt, not the stats', async () => {
+    const basic = (u, p) => 'Basic ' + Buffer.from(`${u}:${p}`).toString('base64');
+    const ask = await get('/admin');
+    assert.equal(ask.status, 401);
+    assert.match(ask.headers.get('www-authenticate'), /^Basic realm=/);
+    assert.equal(ask.headers.get('cache-control'), 'no-store');
+    assert.doesNotMatch(await ask.text(), /Sign-ups/);
+    assert.equal((await get('/admin', { cookie: await signup('notboss') })).status, 401, 'a game account is not the admin login');
+    const as = (auth, ip) => fetch(BASE + '/admin', { headers: { authorization: auth, 'x-forwarded-for': ip ?? freshIp() } });
+    for (const auth of [basic('admin', 'wrong password!'), basic('root', 'test admin password'), basic('', 'test admin password'),
+      'Basic ' + Buffer.from('admintest admin password').toString('base64'), 'Basic !!!', 'Bearer x']) assert.equal((await as(auth)).status, 401, auth);
+    const ok = await as(basic('admin', 'test admin password'));
     assert.equal(ok.status, 200);
     const html = await ok.text();
     for (const s of ['Connected players', 'Sign-ups, 1 / 7 / 30 days', 'Last 14 days', 'href="/u/notboss"']) assert.ok(html.includes(s), s);
-    assert.equal((await post('/admin', {}, { cookie: cookieOf(ok) ?? '' })).status, 404, 'read only');
+    const ip = freshIp(); // guessing is capped per network, and then even the right password waits
+    for (let i = 0; i < 30; i++) await as(basic('admin', `guess ${i}`), ip);
+    assert.equal((await as(basic('admin', 'test admin password'), ip)).status, 429);
   });
 } finally {
   srv.kill();
