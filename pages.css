@@ -90,3 +90,4 @@ footer span { margin-left: auto; }
 .ad span { display: block; color: var(--muted); font-size: 10px; letter-spacing: .14em; text-transform: uppercase; margin-bottom: 6px; }
 .ad ins { display: block; min-height: 100px; }
 .ad:has(ins[data-ad-status="unfilled"]) { display: none; }
+.bar { display: inline-block; height: 8px; min-width: 2px; background: var(--gold); border-radius: 4px; vertical-align: middle; }
