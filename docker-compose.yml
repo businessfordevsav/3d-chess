@@ -28,13 +28,14 @@ services:
       # browsers remember to use HTTPS for a year
       - "traefik.http.middlewares.chess-hsts.headers.stsSeconds=31536000"
       - "traefik.http.middlewares.chess-hsts.headers.stsIncludeSubdomains=true"
-      # www goes to the bare domain, path kept (needs a www DNS record; see DEPLOY.md)
-      - "traefik.http.routers.chess-www.rule=Host(`www.${DOMAIN}`)"
+      # www, and optionally REDIRECT_DOMAIN (an old domain) and its www, go to the bare domain, path kept
+      # (needs their DNS records; see DEPLOY.md). Unset REDIRECT_DOMAIN just repeats www.DOMAIN.
+      - "traefik.http.routers.chess-www.rule=Host(`www.${DOMAIN}`) || Host(`${REDIRECT_DOMAIN:-www.${DOMAIN}}`) || Host(`www.${REDIRECT_DOMAIN:-${DOMAIN}}`)"
       - "traefik.http.routers.chess-www.entrypoints=websecure"
       - "traefik.http.routers.chess-www.tls.certresolver=letsencrypt"
       - "traefik.http.routers.chess-www.middlewares=chess-www"
       - "traefik.http.routers.chess-www.service=chess"
-      - "traefik.http.middlewares.chess-www.redirectregex.regex=^https://www\\.[^/]+/(.*)"
+      - "traefik.http.middlewares.chess-www.redirectregex.regex=^https://[^/]+/(.*)"
       - "traefik.http.middlewares.chess-www.redirectregex.replacement=https://${DOMAIN}/$${1}"
       - "traefik.http.middlewares.chess-www.redirectregex.permanent=true"
 
