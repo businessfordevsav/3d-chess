@@ -346,6 +346,59 @@ ${games.map(g => {
     };
   }
 
+  // --- /admin: the owner's dashboard (server.js checks ADMIN_USERS before rendering it) ---
+  // ponytail: full scans of users/games on each view; add an index on games(ended) if it ever gets slow
+  const counts = db.prepare(`SELECT
+      (SELECT COUNT(*) FROM users WHERE guest = 0) AS accounts, (SELECT COUNT(*) FROM users WHERE guest = 1) AS guests,
+      (SELECT COUNT(*) FROM users WHERE guest = 0 AND created > :d1) AS signups1, (SELECT COUNT(*) FROM users WHERE guest = 0 AND created > :d7) AS signups7,
+      (SELECT COUNT(*) FROM users WHERE guest = 0 AND created > :d30) AS signups30,
+      (SELECT COUNT(*) FROM users WHERE guest = 0 AND email_verified = 1) AS verified, (SELECT COUNT(*) FROM users WHERE google_sub IS NOT NULL) AS google,
+      (SELECT COUNT(DISTINCT user_id) FROM sessions WHERE last_seen > :d1) AS active1, (SELECT COUNT(DISTINCT user_id) FROM sessions WHERE last_seen > :d7) AS active7,
+      (SELECT COUNT(*) FROM games) AS games, (SELECT COUNT(*) FROM games WHERE rated = 1) AS rated,
+      (SELECT COUNT(*) FROM games WHERE ended > :d1) AS games1, (SELECT COUNT(*) FROM games WHERE ended > :d7) AS games7,
+      (SELECT COUNT(*) FROM games WHERE ended > :d30) AS games30`);
+  const perDay = (table, col) => db.prepare(`SELECT date(${col} / 1000, 'unixepoch') AS day, COUNT(*) AS n FROM ${table}
+    WHERE ${col} > ? ${table === 'users' ? 'AND guest = 0' : ''} GROUP BY day`);
+  const gamesPerDay = perDay('games', 'ended'), signupsPerDay = perDay('users', 'created');
+  const breakdown = col => db.prepare(`SELECT ${col} AS k, COUNT(*) AS n FROM games GROUP BY k ORDER BY n DESC LIMIT 12`);
+  const byTc = breakdown('tc'), byReason = breakdown('reason'), byWinner = breakdown('winner');
+  const newest = db.prepare('SELECT name, created, email_verified, google_sub IS NOT NULL AS google FROM users WHERE guest = 0 ORDER BY created DESC LIMIT 15');
+
+  function admin({ online, rooms }) {
+    const now = Date.now(), DAY = 864e5;
+    const c = counts.get({ d1: now - DAY, d7: now - 7 * DAY, d30: now - 30 * DAY });
+    const since = now - 14 * DAY, toMap = rows => Object.fromEntries(rows.map(r => [r.day, r.n]));
+    const g = toMap(gamesPerDay.all(since)), s = toMap(signupsPerDay.all(since));
+    const days = Array.from({ length: 14 }, (_, i) => new Date(now - i * DAY).toISOString().slice(0, 10));
+    const peak = Math.max(1, ...days.map(d => g[d] ?? 0));
+    const stat = (v, label) => `<div class="stat"><b>${v}</b><span>${label}</span></div>`;
+    const table = (head, rows) => `<div class="scroll"><table class="table"><thead><tr>${head}</tr></thead><tbody>\n${rows.join('\n')}\n</tbody></table></div>`;
+    const counted = (title, rows, name) => `<h2>${title}</h2>` + (rows.length
+      ? table('<th>' + title.split(' ')[0] + '</th><th class="num">Games</th>', rows.map(r => `<tr><td>${esc(name(r.k))}</td><td class="num">${r.n}</td></tr>`))
+      : '<p class="muted">No games yet.</p>');
+    return {
+      title: 'Admin', description: 'Site stats.', noindex: true,
+      body: `<p class="eyebrow">Admin</p>
+<h1>Stats</h1>
+<p class="muted">As of ${new Date(now).toISOString().slice(0, 16).replace('T', ' ')} UTC</p>
+<h2>Now</h2>
+<div class="stats">${stat(online, 'Connected players')}${stat(rooms, 'Live rooms')}${stat(c.active1, 'Active, last 24 h')}${stat(c.active7, 'Active, last 7 days')}</div>
+<h2>Accounts</h2>
+<div class="stats">${stat(c.accounts, 'Accounts')}${stat(c.guests, 'Guests')}${stat(`${c.signups1} / ${c.signups7} / ${c.signups30}`, 'Sign-ups, 1 / 7 / 30 days')}${stat(c.verified, 'Verified email')}${stat(c.google, 'Google linked')}</div>
+<h2>Games</h2>
+<div class="stats">${stat(c.games, 'Games')}${stat(c.rated, 'Rated')}${stat(`${c.games1} / ${c.games7} / ${c.games30}`, 'Games, 1 / 7 / 30 days')}</div>
+<h2>Last 14 days</h2>
+${table('<th>Day (UTC)</th><th class="num">Games</th><th></th><th class="num">Sign-ups</th>', days.map(d =>
+  `<tr><td>${d}</td><td class="num">${g[d] ?? 0}</td><td><span class="bar" style="width:${Math.round((g[d] ?? 0) / peak * 100)}%"></span></td><td class="num">${s[d] ?? 0}</td></tr>`))}
+${counted('Results', byWinner.all(), k => ({ w: 'White won', b: 'Black won' })[k] ?? 'Draw')}
+${counted('Clock', byTc.all(), k => k === 'none' ? 'No clock' : k)}
+${counted('Ending', byReason.all(), k => k)}
+<h2>Newest accounts</h2>
+${table('<th>Player</th><th class="hide-sm">Sign-in</th><th class="num">Joined</th>', newest.all().map(u =>
+  `<tr><td>${playerLink(u.name)}</td><td class="hide-sm muted">${[u.email_verified && 'verified email', u.google && 'Google'].filter(Boolean).join(', ') || '—'}</td><td class="num muted">${day(u.created)}</td></tr>`))}`,
+    };
+  }
+
   const notFound = { title: 'Page not found', description: 'This page does not exist.', noindex: true,
     body: '<p class="eyebrow">404</p>\n<h1>Page not found</h1>\n<p class="lede">That page doesn\'t exist, or the player has deleted their account.</p>\n<a class="cta" href="/">Back to the game</a>' };
 
@@ -363,6 +416,7 @@ ${games.map(g => {
       return { status: 200, noindex: pg.noindex, html: layout({ path, ...pg }) };
     },
     notFound: path => layout({ path, ...notFound }),
+    admin: live => layout({ path: '/admin', ...admin(live) }),
     // for sitemap.xml: the pages and every registered player with a rated game, as [path, lastmod ms or null]
     sitemap: () => [['/', null], ['/leaderboard', null], ...Object.keys(STATIC).map(p => [p, null]),
       ...profiled.all().map(r => [`/u/${r.name}`, r.last])],

@@ -39,7 +39,7 @@ await new Promise(r => mock.listen(GPORT, r));
 const outbox = [];
 const srv = spawn(process.execPath, ['--no-warnings', 'server.js'], {
   cwd: import.meta.dirname, stdio: ['ignore', 'pipe', 'inherit'],
-  env: { ...process.env, PORT, DB_FILE, TRUST_PROXY: '1', APP_URL: BASE, SMTP_HOST: '',
+  env: { ...process.env, PORT, DB_FILE, TRUST_PROXY: '1', APP_URL: BASE, SMTP_HOST: '', ADMIN_USERS: ' Boss , other',
     GOOGLE_CLIENT_ID: 'test-client', GOOGLE_CLIENT_SECRET: 'test-secret',
     GOOGLE_AUTH_URL: `${GBASE}/auth`, GOOGLE_TOKEN_URL: `${GBASE}/token`, GOOGLE_USERINFO_URL: `${GBASE}/userinfo` },
 });
@@ -388,6 +388,19 @@ try {
     assert.equal((await get('/api/account')).status, 401);
     assert.equal((await post('/api/account/nope', {}, { cookie: await signup('uma') })).status, 404);
     assert.equal((await post('/api/signup', [1, 2])).status, 400);
+  });
+  await check('/admin shows stats only to accounts in ADMIN_USERS; everyone else gets a plain 404', async () => {
+    const anon = await get('/admin');
+    assert.equal(anon.status, 404);
+    assert.equal(anon.headers.get('cache-control'), 'no-store');
+    assert.match(anon.headers.get('x-robots-tag'), /noindex/);
+    assert.doesNotMatch(await anon.text(), /Sign-ups/);
+    assert.equal((await get('/admin', { cookie: await signup('notboss') })).status, 404, 'a signed-in non-admin');
+    const ok = await get('/admin', { cookie: await signup('boss') }); // listed as " Boss ": trimmed, any case
+    assert.equal(ok.status, 200);
+    const html = await ok.text();
+    for (const s of ['Connected players', 'Sign-ups, 1 / 7 / 30 days', 'Last 14 days', 'href="/u/notboss"']) assert.ok(html.includes(s), s);
+    assert.equal((await post('/admin', {}, { cookie: cookieOf(ok) ?? '' })).status, 404, 'read only');
   });
 } finally {
   srv.kill();

@@ -560,6 +560,9 @@ function sendBody(req, res, status, type, body, cacheKey) {
   res.writeHead(status, { 'Content-Type': type, 'Content-Length': body.length }).end(req.method === 'HEAD' ? undefined : body);
 }
 
+// usernames (comma-separated, any case) that may open /admin; register them before listing them here
+const ADMINS = new Set((process.env.ADMIN_USERS ?? '').split(',').map(s => s.trim().toLowerCase()).filter(Boolean));
+
 // --- crawler files ---
 const robotsTxt = () => `User-agent: *\nAllow: /\nDisallow: /api/\nDisallow: /auth/\n\nSitemap: ${APP_URL}/sitemap.xml\n`;
 const STARTED = new Date().toISOString().slice(0, 10);
@@ -592,6 +595,13 @@ const server = createServer(async (req, res) => {
     .end(`google.com, ${ADS.client.replace('ca-', '')}, DIRECT, f08c47fec0942fa0\n`);
   if (path === '/sitemap.xml') return res.writeHead(200, { 'Content-Type': TYPES['.xml'], 'Cache-Control': 'public, max-age=3600' }).end(sitemapXml());
   const isRead = ['GET', 'HEAD'].includes(req.method);
+  // the owner's stats: a 404 like any missing page unless signed in as a full account named in ADMIN_USERS
+  if (path === '/admin' && isRead) {
+    res.setHeader('X-Robots-Tag', 'noindex');
+    res.setHeader('Cache-Control', 'no-store');
+    const u = userFromReq(req), ok = u && !u.guest && ADMINS.has(u.name.toLowerCase());
+    return sendBody(req, res, ok ? 200 : 404, TYPES['.html'], Buffer.from(ok ? pages.admin({ online: wss.clients.size, rooms: rooms.size }) : pages.notFound(path)), true);
+  }
   const page = isRead && pages.render(path);
   if (page?.redirect) return res.writeHead(301, { Location: page.redirect }).end();
   if (page) {
