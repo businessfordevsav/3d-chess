@@ -560,8 +560,21 @@ function sendBody(req, res, status, type, body, cacheKey) {
   res.writeHead(status, { 'Content-Type': type, 'Content-Length': body.length }).end(req.method === 'HEAD' ? undefined : body);
 }
 
-// usernames (comma-separated, any case) that may open /admin; register them before listing them here
-const ADMINS = new Set((process.env.ADMIN_USERS ?? '').split(',').map(s => s.trim().toLowerCase()).filter(Boolean));
+// /admin has its own login, apart from game accounts: the browser's Basic Auth prompt (HTTPS only in production,
+// so the password never travels in the clear). Off, a plain 404, unless ADMIN_PASSWORD has 12+ characters.
+const ADMIN_USER = process.env.ADMIN_USER || 'admin', ADMIN_PASSWORD = process.env.ADMIN_PASSWORD ?? '';
+const ADMIN_ON = ADMIN_PASSWORD.length >= 12;
+if (ADMIN_PASSWORD && !ADMIN_ON) console.warn('warning: ADMIN_PASSWORD needs at least 12 characters; /admin is off');
+const adminLimit = limiter(30, 15 * 6e4); LIMITERS.push(adminLimit); // login attempts (and views) per network: guessing stays hopeless
+const sameSecret = (a, b) => timingSafeEqual(Buffer.from(sha(a)), Buffer.from(sha(b))); // equal-length digests: no timing leak
+function adminAuth(req) { // 'ok', 'ask' (no or wrong login) or 'slow' (too many tries)
+  const m = /^Basic ([A-Za-z0-9+/=]{1,400})$/.exec(req.headers.authorization ?? '');
+  if (!m) return 'ask';
+  if (!adminLimit(clientIp(req))) return 'slow';
+  const creds = Buffer.from(m[1], 'base64').toString(), i = creds.indexOf(':');
+  const user = sameSecret(creds.slice(0, i), ADMIN_USER), pass = sameSecret(creds.slice(i + 1), ADMIN_PASSWORD); // both always compared
+  return i > 0 && user && pass ? 'ok' : 'ask';
+}
 
 // --- crawler files ---
 const robotsTxt = () => `User-agent: *\nAllow: /\nDisallow: /api/\nDisallow: /auth/\n\nSitemap: ${APP_URL}/sitemap.xml\n`;
@@ -595,12 +608,14 @@ const server = createServer(async (req, res) => {
     .end(`google.com, ${ADS.client.replace('ca-', '')}, DIRECT, f08c47fec0942fa0\n`);
   if (path === '/sitemap.xml') return res.writeHead(200, { 'Content-Type': TYPES['.xml'], 'Cache-Control': 'public, max-age=3600' }).end(sitemapXml());
   const isRead = ['GET', 'HEAD'].includes(req.method);
-  // the owner's stats: a 404 like any missing page unless signed in as a full account named in ADMIN_USERS
-  if (path === '/admin' && isRead) {
+  // the owner's stats, behind the admin login (see adminAuth)
+  if (path === '/admin' && isRead && ADMIN_ON) {
     res.setHeader('X-Robots-Tag', 'noindex');
     res.setHeader('Cache-Control', 'no-store');
-    const u = userFromReq(req), ok = u && !u.guest && ADMINS.has(u.name.toLowerCase());
-    return sendBody(req, res, ok ? 200 : 404, TYPES['.html'], Buffer.from(ok ? pages.admin({ online: wss.clients.size, rooms: rooms.size }) : pages.notFound(path)), true);
+    const auth = adminAuth(req);
+    if (auth === 'slow') return res.writeHead(429, { 'Content-Type': TYPES['.txt'], 'Retry-After': '900' }).end('Too many attempts. Try again later.\n');
+    if (auth === 'ask') return res.writeHead(401, { 'Content-Type': TYPES['.txt'], 'WWW-Authenticate': 'Basic realm="3D Chess admin", charset="UTF-8"' }).end('Admin login required.\n');
+    return sendBody(req, res, 200, TYPES['.html'], Buffer.from(pages.admin({ online: wss.clients.size, rooms: rooms.size })), true);
   }
   const page = isRead && pages.render(path);
   if (page?.redirect) return res.writeHead(301, { Location: page.redirect }).end();
